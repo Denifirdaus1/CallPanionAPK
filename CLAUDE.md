@@ -178,3 +178,172 @@ Key packages used:
 - permission_handler: Runtime permissions
 - connectivity_plus: Network status
 - wakelock_plus: Screen wake management
+
+## Git Workflow & Branch Management
+
+### Repository Structure
+```
+main branch          (Production-ready code)
+├── develop          (Integration branch for features)
+├── feature/*        (Feature development branches)
+└── hotfix/*         (Emergency fixes for production)
+```
+
+### Branch Strategy
+
+#### Main Branch (main)
+- **Purpose**: Production-ready, stable code
+- **Protection**: Never push directly, only merge via PR
+- **Deployment**: Auto-deploy to production
+
+#### Develop Branch (develop)
+- **Purpose**: Integration branch for all features
+- **Usage**: Merge completed features here for testing
+- **Stability**: Should always be in working state
+
+#### Feature Branches (feature/*)
+- **Naming**: `feature/feature-name` or `feature/core-development`
+- **Purpose**: Develop new features or major changes
+- **Workflow**: Branch from develop, merge back to develop
+
+#### Hotfix Branches (hotfix/*)
+- **Naming**: `hotfix/emergency-fixes` or `hotfix/critical-bug`
+- **Purpose**: Emergency fixes for production issues
+- **Workflow**: Branch from main, merge to both main and develop
+
+### Git Commands for Safe Development
+
+#### Daily Development Workflow
+```bash
+# Switch to develop branch
+git checkout develop
+
+# Pull latest changes
+git pull origin develop
+
+# Create feature branch
+git checkout -b feature/new-feature
+
+# Work on your changes...
+# Stage and commit changes
+git add .
+git commit -m "Add new feature implementation"
+
+# Push feature branch
+git push -u origin feature/new-feature
+
+# Create Pull Request on GitHub to merge into develop
+```
+
+#### Safe Version Management
+```bash
+# Create a checkpoint before major changes
+git tag -a v1.0.0 -m "Stable version before major changes"
+git push origin v1.0.0
+
+# Check commit history
+git log --oneline
+
+# Revert to previous commit if needed
+git reset --hard <commit-hash>
+
+# Restore specific file from previous commit
+git checkout <commit-hash> -- path/to/file
+```
+
+#### Emergency Hotfix Workflow
+```bash
+# Create hotfix from main
+git checkout main
+git pull origin main
+git checkout -b hotfix/critical-fix
+
+# Make fix and test
+git add .
+git commit -m "Fix critical production issue"
+
+# Push and create PR to main
+git push -u origin hotfix/critical-fix
+
+# After merge to main, also merge to develop
+git checkout develop
+git merge hotfix/critical-fix
+git push origin develop
+```
+
+#### Backup & Recovery
+```bash
+# Create local backup branch
+git branch backup-$(date +%Y%m%d)
+
+# List all branches (local and remote)
+git branch -a
+
+# Restore from backup
+git checkout backup-20241217
+git checkout -b restore-point
+
+# Force push if needed (DANGER: only on your branches)
+git push --force-with-lease origin feature/your-branch
+```
+
+### GitHub Repository Setup
+- **URL**: https://github.com/Denifirdaus1/CallPanionAPK.git
+- **Default Branch**: main
+- **Auto-merge**: Disabled for main branch
+- **Required Reviews**: Recommended for main branch
+
+### Version Control Best Practices
+
+#### Commit Message Format
+```bash
+# Feature commits
+git commit -m "feat: add ElevenLabs WebRTC integration"
+
+# Bug fixes
+git commit -m "fix: resolve CallKit notification issues"
+
+# Documentation
+git commit -m "docs: update integration guide"
+
+# Refactoring
+git commit -m "refactor: improve API service error handling"
+```
+
+#### Recovery Commands
+```bash
+# If you made mistake and need to go back
+git log --oneline                    # Find the good commit
+git reset --hard <good-commit-hash>  # Reset to that commit
+git push --force-with-lease origin <branch-name>
+
+# Undo last commit but keep changes
+git reset --soft HEAD~1
+
+# Discard all uncommitted changes
+git stash
+# or
+git checkout -- .
+```
+
+### Branch Protection Rules (Recommended GitHub Settings)
+
+#### For main branch:
+- Require pull request reviews before merging
+- Require status checks to pass before merging
+- Require branches to be up to date before merging
+- Include administrators in restrictions
+
+#### For develop branch:
+- Require pull request reviews (can be less strict)
+- Allow force pushes (for integration fixes)
+
+### Project Backup Strategy
+```bash
+# Weekly full backup
+git clone --mirror https://github.com/Denifirdaus1/CallPanionAPK.git backup-$(date +%Y%m%d)
+
+# Or create release tags for major milestones
+git tag -a release-v1.0 -m "Production release v1.0"
+git push origin release-v1.0
+```
