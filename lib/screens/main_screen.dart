@@ -10,6 +10,7 @@ import '../models/call_data.dart';
 import '../utils/constants.dart';
 import '../utils/connection_test.dart';
 import 'call_screen.dart';
+// Removed webview_call_screen.dart import - using native ElevenLabs WebRTC only
 import 'pairing_screen.dart';
 
 class MainScreen extends StatefulWidget {
@@ -137,7 +138,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _currentCall = callData;
         _status = 'Incoming call from ${callData.relativeName}';
       });
-      
+
       // Navigate immediately to call screen for incoming calls
       if (mounted) {
         _navigateToCallScreen(callData.sessionId, callData.callType);
@@ -271,12 +272,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _navigateToCallScreen(callData.sessionId, callData.callType);
           });
-          
-          // Also notify the main app to navigate directly
-          if (context.findAncestorStateOfType<_MainScreenState>() != null) {
-            // We're in MainScreen, but we want to notify the parent app
-            // This is handled by the main.dart changes
-          }
         }
       }
     } catch (e) {
@@ -329,6 +324,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void _navigateToCallScreen(String sessionId, String callType) {
     if (callType == AppConstants.callTypeInApp) {
       // For in-app calls, use native call screen with ElevenLabs WebRTC
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CallScreen(
+            sessionId: sessionId,
+            relativeName: _relativeName ?? 'Your Family',
+            callType: callType,
+          ),
+        ),
+      );
+    } else {
+      // For all other call types, also use native call screen with ElevenLabs WebRTC
       Navigator.push(
         context,
         MaterialPageRoute(
