@@ -1,0 +1,7 @@
+# This file ensures the web project directory is tracked in Git
+# even when it's empty initially
+
+# When you download the web project from Lovable.dev:
+# 1. Extract all files to this callpanion-web/ directory
+# 2. Delete this .gitkeep file
+# 3. Commit the web project files to maintain integration sync

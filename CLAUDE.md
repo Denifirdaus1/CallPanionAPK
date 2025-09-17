@@ -3,6 +3,8 @@
 ## Project Overview
 CallPanion Elderly is a Flutter VoIP calling application designed for elderly users with native CallKit integration, Firebase Cloud Messaging, and WebView functionality for seamless call experiences.
 
+**Integrated Web-Flutter Development**: This project includes both Flutter APK and web project code for seamless integration development and testing.
+
 ## Development Commands
 
 ### Setup & Dependencies
@@ -347,3 +349,188 @@ git clone --mirror https://github.com/Denifirdaus1/CallPanionAPK.git backup-$(da
 git tag -a release-v1.0 -m "Production release v1.0"
 git push origin release-v1.0
 ```
+
+## Integrated Web-Flutter Development
+
+### Project Structure (Integrated)
+```
+callpanion_elderly/                     # Main Flutter project
+├── lib/                               # Flutter source code
+├── android/                           # Android-specific code
+├── ios/                              # iOS-specific code
+├── callpanion-web/                   # 🆕 Web project (from Lovable.dev)
+│   ├── src/                          # React/Next.js source
+│   │   ├── pages/elderly/            # WebView interfaces Flutter loads
+│   │   ├── components/call/          # Call handling components
+│   │   └── services/                 # API services
+│   ├── supabase/                     # Edge Functions & Database
+│   │   ├── functions/                # API endpoints Flutter calls
+│   │   └── migrations/               # Database schema
+│   └── public/                       # Static assets
+├── CLAUDE.md                         # This file
+├── INTEGRATION_GUIDE.md              # Technical integration specs
+└── INTEGRATION_WORKFLOW.md          # Web-Flutter development workflow
+```
+
+### Web Project Management
+
+#### Initial Setup (One-time)
+```bash
+# Download web project from Lovable.dev GitHub export
+# Extract to callpanion-web/ directory
+
+cd callpanion-web/
+npm install                           # Install web dependencies
+```
+
+#### Daily Development Workflow
+```bash
+# Web Development Server (Terminal 1)
+cd callpanion-web/
+npm run dev                          # Start at http://localhost:3000
+
+# Flutter Development (Terminal 2)
+flutter run                         # Test integration with local web server
+
+# Supabase Functions (Terminal 3 - if developing locally)
+cd callpanion-web/
+supabase start                      # Start local Supabase
+supabase functions serve            # Serve Edge Functions locally
+```
+
+#### Update from Lovable.dev (When needed)
+```bash
+# 1. Download latest web project export from Lovable.dev
+# 2. Extract to callpanion-web/ (overwrite existing)
+# 3. Commit changes
+git add callpanion-web/
+git commit -m "sync: update web project from Lovable.dev"
+
+# 4. Test integration
+npm run --prefix callpanion-web/ dev # Test web server
+flutter run                         # Test Flutter integration
+```
+
+### Integration Testing Commands
+
+#### Critical Integration Points Check
+```bash
+# Test Edge Functions connectivity (Flutter → Backend)
+curl -X POST "https://umjtepmdwfyfhdzbkyli.supabase.co/functions/v1/register-fcm-token" \
+  -H "apikey: YOUR_ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"test": true}'
+
+# Test WebView interface accessibility (Flutter WebView → Web)
+curl -I "https://your-domain.com/elderly/call?sessionId=test&platform=flutter"
+
+# Test API payload compatibility
+grep -r "CallData" lib/models/call_data.dart
+grep -r "sessionId\|relativeName" callpanion-web/src/
+```
+
+#### Integration Health Check
+```bash
+# Complete integration validation
+flutter analyze                     # Check Flutter code health
+flutter test                       # Run Flutter tests
+cd callpanion-web && npm run build # Test web build
+cd callpanion-web && npm run lint  # Check web code quality
+```
+
+### Cross-Project Debugging
+
+#### Debug Flutter + Web Integration
+```bash
+# Debug Flutter API calls to Edge Functions
+flutter run --verbose              # Shows HTTP requests
+
+# Debug WebView content (Chrome DevTools)
+flutter run --debug                # Enable WebView debugging
+# Open Chrome: chrome://inspect     # Debug WebView content
+
+# Debug Edge Functions locally
+cd callpanion-web/
+supabase functions serve --debug   # Local functions at http://localhost:54321
+```
+
+#### Monitor Integration Files
+```bash
+# Critical files for Flutter integration:
+ls callpanion-web/src/pages/elderly/call.tsx          # WebView interface
+ls callpanion-web/supabase/functions/*/index.ts       # API endpoints
+ls callpanion-web/src/services/api.js                 # API client
+ls lib/utils/constants.dart                           # Flutter configuration
+```
+
+### Production Deployment (Integrated)
+
+#### Deploy Web Project
+```bash
+cd callpanion-web/
+
+# Deploy Supabase Edge Functions
+supabase functions deploy --project-ref YOUR_PROJECT_ID
+
+# Deploy web app (depends on hosting)
+npm run build                       # Build for production
+# Deploy to Vercel/Netlify/your hosting
+```
+
+#### Deploy Flutter APK
+```bash
+# Build with production web URLs
+flutter build apk --release        # Android
+flutter build ios --release        # iOS
+```
+
+#### Integration Deployment Checklist
+```bash
+# After web deployment, verify Flutter compatibility:
+# ✅ Edge Function URLs match lib/utils/constants.dart
+# ✅ WebView URLs accessible from mobile
+# ✅ API payloads compatible between web and Flutter
+# ✅ Database schema supports Flutter models
+# ✅ Push notifications work end-to-end
+# ✅ Device pairing flow functional
+# ✅ Call interface loads in Flutter WebView
+```
+
+### Integration Troubleshooting
+
+#### Common Integration Issues
+```bash
+# Issue: Flutter API calls fail
+# Solution: Check Edge Function URLs
+grep -r "supabaseUrl\|functions/v1" lib/utils/constants.dart
+ls callpanion-web/supabase/functions/
+
+# Issue: WebView doesn't load
+# Solution: Test accessibility
+curl -I "https://your-domain.com/elderly/call"
+# Check CORS settings in web project
+
+# Issue: Push notifications not working
+# Solution: Verify FCM integration
+ls android/app/google-services.json     # Must exist
+ls ios/Runner/GoogleService-Info.plist  # Must exist (iOS)
+```
+
+#### Integration Health Monitoring
+```bash
+# Daily integration check
+./scripts/integration-health-check.sh  # Custom script for validation
+
+# Manual verification
+flutter run --debug                    # Test on device
+curl -f https://your-domain.com/elderly/call  # WebView accessible
+curl -f https://[project].supabase.co/functions/v1/register-fcm-token # API up
+```
+
+## Related Documentation
+
+- **INTEGRATION_GUIDE.md**: Technical integration specifications
+- **INTEGRATION_WORKFLOW.md**: Detailed web-Flutter development workflow
+- **callpanion-web/README.md**: Web project specific documentation
+
+This integrated setup ensures seamless development between Lovable.dev web project and Flutter APK with real-time integration testing and debugging capabilities! 🚀

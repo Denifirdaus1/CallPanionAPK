@@ -88,3 +88,28 @@ GoogleService-Info.plist
 
 # Assets
 /assets/sounds/ringtone.mp3
+
+# Web Project (when extracted from Lovable.dev)
+callpanion-web/node_modules/
+callpanion-web/.next/
+callpanion-web/.env
+callpanion-web/.env.local
+callpanion-web/.env.production
+callpanion-web/dist/
+callpanion-web/build/
+callpanion-web/.turbo/
+callpanion-web/.vercel/
+callpanion-web/.netlify/
+
+# Web Project - Keep source code but ignore build artifacts
+!callpanion-web/src/
+!callpanion-web/supabase/
+!callpanion-web/public/
+!callpanion-web/package.json
+!callpanion-web/README.md
+!callpanion-web/*.config.js
+!callpanion-web/*.config.ts
+!callpanion-web/*.json
+
+# Integration Documentation
+!callpanion-web/docs/
