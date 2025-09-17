@@ -48,6 +48,8 @@
 		<string>voip</string>
 		<string>audio</string>
 		<string>remote-notification</string>
+		<string>background-processing</string>
+		<string>background-fetch</string>
 	</array>
 
 	<!-- Privacy Permissions -->

@@ -1,0 +1,7 @@
+# This directory will contain test reports
+# Generated files:
+# - playwright-report/ (HTML reports)
+# - test-results.json (JSON test results)
+# - test-results.xml (JUnit format)
+# - summary.json (Test summary)
+# - README.md (Generated report summary)

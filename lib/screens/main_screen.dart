@@ -10,7 +10,6 @@ import '../models/call_data.dart';
 import '../utils/constants.dart';
 import '../utils/connection_test.dart';
 import 'call_screen.dart';
-import 'webview_call_screen.dart';
 import 'pairing_screen.dart';
 
 class MainScreen extends StatefulWidget {
@@ -337,17 +336,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             sessionId: sessionId,
             relativeName: _relativeName ?? 'Your Family',
             callType: callType,
-          ),
-        ),
-      );
-    } else {
-      // For other call types, use WebView screen
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => WebViewCallScreen(
-            sessionId: sessionId,
-            relativeName: _relativeName ?? 'Your Family',
           ),
         ),
       );
