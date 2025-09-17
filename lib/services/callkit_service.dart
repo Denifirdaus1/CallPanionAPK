@@ -1,0 +1,485 @@
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'package:flutter_callkit_incoming/entities/entities.dart';
+import 'package:uuid/uuid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/call_data.dart';
+import '../utils/constants.dart';
+import 'api_service.dart';
+import 'elevenlabs_call_service.dart';
+
+class CallKitService {
+  static final CallKitService _instance = CallKitService._internal();
+  static CallKitService get instance => _instance;
+  CallKitService._internal();
+
+  final Uuid _uuid = const Uuid();
+  String? _currentCallUuid;
+  CallData? _currentCall;
+
+  Function(CallData)? onIncomingCall;
+  Function(String, String)? onCallAccepted;
+  Function(String)? onCallDeclined;
+  Function(String)? onCallEnded;
+
+  Future<void> initialize() async {
+    if (kDebugMode) {
+      print('🔧 Initializing CallKit Service...');
+    }
+
+    // Request permissions
+    await _requestPermissions();
+
+    // Setup CallKit event listeners
+    _setupCallKitListeners();
+
+    if (kDebugMode) {
+      print('✅ CallKit Service initialized');
+    }
+  }
+
+  Future<void> _requestPermissions() async {
+    try {
+      // Request notification permissions
+      await FlutterCallkitIncoming.requestNotificationPermission({
+        'title': 'CallPanion Notification',
+        'rationaleMessagePermission': 'CallPanion needs notification permission to show incoming calls.',
+        'postNotificationMessageRequired': 'Please enable notifications in Settings to receive calls.'
+      });
+
+      // For Android 14+, request full screen intent permission
+      if (Platform.isAndroid) {
+        final canUseFullScreenIntent = await FlutterCallkitIncoming.canUseFullScreenIntent();
+        if (!canUseFullScreenIntent) {
+          await FlutterCallkitIncoming.requestFullIntentPermission();
+        }
+      }
+
+      if (kDebugMode) {
+        print('✅ CallKit permissions requested');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error requesting permissions: $e');
+      }
+    }
+  }
+
+  void _setupCallKitListeners() {
+    FlutterCallkitIncoming.onEvent.listen((CallEvent? event) {
+      if (event == null) return;
+
+      if (kDebugMode) {
+        print('📞 CallKit Event: ${event.event}');
+        print('📞 Call Data: ${event.body}');
+      }
+
+      switch (event.event) {
+        case Event.actionCallIncoming:
+          _handleIncomingCall(event);
+          break;
+        case Event.actionCallAccept:
+          _handleCallAccept(event);
+          break;
+        case Event.actionCallDecline:
+          _handleCallDecline(event);
+          break;
+        case Event.actionCallEnded:
+          _handleCallEnded(event);
+          break;
+        case Event.actionCallTimeout:
+          _handleCallTimeout(event);
+          break;
+        case Event.actionCallCallback:
+          _handleCallCallback(event);
+          break;
+        case Event.actionDidUpdateDevicePushTokenVoip:
+          _handleVoIPTokenUpdate(event);
+          break;
+        default:
+          if (kDebugMode) {
+            print('📞 Unhandled CallKit event: ${event.event}');
+          }
+      }
+    });
+  }
+
+  Future<void> showIncomingCall(CallData callData) async {
+    try {
+      _currentCallUuid = _uuid.v4();
+      _currentCall = callData;
+
+      final callKitParams = CallKitParams(
+        id: _currentCallUuid!,
+        nameCaller: callData.relativeName,
+        appName: 'CallPanion',
+        avatar: callData.avatar ?? '',
+        handle: callData.handle ?? 'CallPanion',
+        type: callData.callType == AppConstants.callTypeInApp ? 1 : 0, // 1 = video, 0 = audio
+        textAccept: 'Accept',
+        textDecline: 'Decline',
+        duration: int.tryParse(callData.duration ?? '30000') ?? 30000,
+        extra: <String, dynamic>{
+          'sessionId': callData.sessionId,
+          'callType': callData.callType,
+          'householdId': callData.householdId,
+          'relativeId': callData.relativeId,
+        },
+        headers: <String, dynamic>{
+          'platform': 'flutter_elderly',
+        },
+        missedCallNotification: const NotificationParams(
+          showNotification: true,
+          isShowCallback: true,
+          subtitle: 'Missed call',
+          callbackText: 'Call back',
+        ),
+        callingNotification: const NotificationParams(
+          showNotification: true,
+          isShowCallback: true,
+          subtitle: 'Calling...',
+          callbackText: 'Hang Up',
+        ),
+        android: const AndroidParams(
+          isCustomNotification: true,
+          isShowLogo: true,
+          ringtonePath: 'system_ringtone_default',
+          backgroundColor: '#2563EB',
+          actionColor: '#10B981',
+          textColor: '#ffffff',
+          incomingCallNotificationChannelName: 'CallPanion Incoming Call',
+          missedCallNotificationChannelName: 'CallPanion Missed Call',
+          isShowCallID: false,
+          isShowFullLockedScreen: true,
+        ),
+        ios: const IOSParams(
+          iconName: 'CallKitLogo',
+          handleType: 'generic',
+          supportsVideo: true,
+          maximumCallGroups: 2,
+          maximumCallsPerCallGroup: 1,
+          audioSessionMode: 'voiceChat',
+          audioSessionActive: true,
+          audioSessionPreferredSampleRate: 44100.0,
+          audioSessionPreferredIOBufferDuration: 0.005,
+          supportsDTMF: true,
+          supportsHolding: true,
+          supportsGrouping: false,
+          supportsUngrouping: false,
+          ringtonePath: 'system_ringtone_default',
+        ),
+      );
+
+      await FlutterCallkitIncoming.showCallkitIncoming(callKitParams);
+
+      if (kDebugMode) {
+        print('📞 Incoming call shown for: ${callData.relativeName}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error showing incoming call: $e');
+      }
+    }
+  }
+
+  void _handleIncomingCall(CallEvent event) {
+    // This is triggered when a CallKit call is displayed
+    if (onIncomingCall != null && _currentCall != null) {
+      onIncomingCall!(_currentCall!);
+    }
+  }
+
+  void _handleCallAccept(CallEvent event) async {
+    try {
+      final callUuid = event.body['id'] as String?;
+      final extra = _convertMapToStringDynamic(event.body['extra']);
+
+      if (callUuid != null && extra != null) {
+        final sessionId = extra['sessionId'] as String?;
+        final callType = extra['callType'] as String?;
+        final householdId = extra['householdId'] as String?;
+        final relativeId = extra['relativeId'] as String?;
+        final relativeName = extra['relativeName'] as String? ?? 'Your Family';
+
+        if (sessionId != null) {
+          // Update call status to active via API
+          await ApiService.instance.updateCallStatus(
+            sessionId: sessionId,
+            status: AppConstants.callStatusActive,
+            action: 'accept',
+            callUuid: callUuid,
+          );
+
+          // Mark call as connected in CallKit
+          await FlutterCallkitIncoming.setCallConnected(callUuid);
+
+          // Store call data for app lifecycle management
+          if (_currentCall != null) {
+            final callData = CallData(
+              sessionId: sessionId,
+              relativeName: relativeName,
+              callType: callType ?? AppConstants.callTypeInApp,
+              householdId: householdId ?? '',
+              relativeId: relativeId ?? '',
+            );
+
+            // Store the call data for when app comes to foreground
+            await _storePendingCallData(callData);
+            
+            // Also navigate immediately if we have an onCallAccepted callback
+            if (onCallAccepted != null && callType != null) {
+              // Small delay to ensure CallKit UI transition is complete
+              Future.delayed(const Duration(milliseconds: 100), () {
+                onCallAccepted!(sessionId, callType);
+              });
+            }
+          } else {
+            // Create call data and navigate immediately
+            final callData = CallData(
+              sessionId: sessionId,
+              relativeName: relativeName,
+              callType: callType ?? AppConstants.callTypeInApp,
+              householdId: householdId ?? '',
+              relativeId: relativeId ?? '',
+            );
+            
+            if (onCallAccepted != null && callType != null) {
+              // Small delay to ensure CallKit UI transition is complete
+              Future.delayed(const Duration(milliseconds: 100), () {
+                onCallAccepted!(sessionId, callType);
+              });
+            }
+          }
+
+          // Start ElevenLabs WebRTC call for in-app calls
+          if (callType == AppConstants.callTypeInApp) {
+            // Start ElevenLabs WebRTC call with a slight delay to allow navigation
+            Future.delayed(const Duration(milliseconds: 200), () async {
+              final elevenLabsSuccess = await ElevenLabsCallService.instance.startElevenLabsCall(sessionId);
+              if (kDebugMode) {
+                print('🎙️ ElevenLabs WebRTC call started: $elevenLabsSuccess');
+              }
+            });
+          }
+
+          if (kDebugMode) {
+            print('✅ Call accepted: $sessionId');
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error handling call accept: $e');
+      }
+    }
+  }
+
+  void _handleCallDecline(CallEvent event) async {
+    try {
+      final callUuid = event.body['id'] as String?;
+      final extra = _convertMapToStringDynamic(event.body['extra']);
+
+      if (callUuid != null && extra != null) {
+        final sessionId = extra['sessionId'] as String?;
+
+        if (sessionId != null) {
+          // Update call status to declined via API
+          await ApiService.instance.updateCallStatus(
+            sessionId: sessionId,
+            status: AppConstants.callStatusDeclined,
+            action: 'decline',
+            callUuid: callUuid,
+          );
+
+          if (onCallDeclined != null) {
+            onCallDeclined!(sessionId);
+          }
+
+          if (kDebugMode) {
+            print('📞 Call declined: $sessionId');
+          }
+        }
+      }
+
+      _clearCurrentCall();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error handling call decline: $e');
+      }
+    }
+  }
+
+  void _handleCallEnded(CallEvent event) async {
+    try {
+      final callUuid = event.body['id'] as String?;
+      final extra = _convertMapToStringDynamic(event.body['extra']);
+
+      if (callUuid != null && extra != null) {
+        final sessionId = extra['sessionId'] as String?;
+
+        if (sessionId != null) {
+          final callType = extra['callType'] as String?;
+
+          // Force end ElevenLabs WebRTC call if it's an in-app call
+          if (callType == AppConstants.callTypeInApp) {
+            // Always try to cleanup ElevenLabs WebRTC regardless of previous state
+            await ElevenLabsCallService.instance.forceEndCall(sessionId);
+            if (kDebugMode) {
+              print('🎙️ ElevenLabs WebRTC call force ended');
+            }
+          }
+
+          // Update call status to completed via API
+          await ApiService.instance.updateCallStatus(
+            sessionId: sessionId,
+            status: AppConstants.callStatusCompleted,
+            action: 'end',
+            callUuid: callUuid,
+          );
+
+          if (onCallEnded != null) {
+            onCallEnded!(sessionId);
+          }
+
+          if (kDebugMode) {
+            print('📞 Call ended: $sessionId');
+          }
+        }
+      }
+
+      _clearCurrentCall();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error handling call end: $e');
+      }
+    }
+  }
+
+  void _handleCallTimeout(CallEvent event) async {
+    try {
+      final callUuid = event.body['id'] as String?;
+      final extra = _convertMapToStringDynamic(event.body['extra']);
+
+      if (callUuid != null && extra != null) {
+        final sessionId = extra['sessionId'] as String?;
+
+        if (sessionId != null) {
+          // Update call status to missed via API
+          await ApiService.instance.updateCallStatus(
+            sessionId: sessionId,
+            status: AppConstants.callStatusMissed,
+            action: 'timeout',
+            callUuid: callUuid,
+          );
+
+          if (kDebugMode) {
+            print('📞 Call timeout: $sessionId');
+          }
+        }
+      }
+
+      _clearCurrentCall();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error handling call timeout: $e');
+      }
+    }
+  }
+
+  void _handleCallCallback(CallEvent event) {
+    // Handle "call back" action from missed call notification
+    if (kDebugMode) {
+      print('📞 Call callback requested');
+    }
+    // This could trigger a callback to family members
+  }
+
+  void _handleVoIPTokenUpdate(CallEvent event) async {
+    try {
+      final deviceToken = await FlutterCallkitIncoming.getDevicePushTokenVoIP();
+      if (deviceToken != null) {
+        // Save VoIP token and register with server
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(AppConstants.keyVoipToken, deviceToken);
+
+        // Register the VoIP token with the server
+        await ApiService.instance.registerFCMToken(voipToken: deviceToken);
+
+        if (kDebugMode) {
+          print('📱 VoIP token updated: ${deviceToken.substring(0, 10)}...');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error handling VoIP token update: $e');
+      }
+    }
+  }
+
+  Future<void> endCurrentCall() async {
+    if (_currentCallUuid != null) {
+      await FlutterCallkitIncoming.endCall(_currentCallUuid!);
+      _clearCurrentCall();
+    }
+  }
+
+  void _clearCurrentCall() {
+    _currentCallUuid = null;
+    _currentCall = null;
+  }
+
+  Future<String?> getVoIPToken() async {
+    try {
+      return await FlutterCallkitIncoming.getDevicePushTokenVoIP();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error getting VoIP token: $e');
+      }
+      return null;
+    }
+  }
+
+  // Getter for current call data
+  CallData? get currentCall => _currentCall;
+
+  /// Store pending call data for app lifecycle management
+  Future<void> _storePendingCallData(CallData callData) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(AppConstants.keyPendingCall, callData.toJsonString());
+
+      if (kDebugMode) {
+        print('💾 Stored pending call data: ${callData.sessionId}');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error storing pending call data: $e');
+      }
+    }
+  }
+
+  /// Helper method to safely convert Map<Object?, Object?> to Map<String, dynamic>
+  Map<String, dynamic>? _convertMapToStringDynamic(dynamic input) {
+    if (input == null) return null;
+
+    try {
+      if (input is Map<String, dynamic>) {
+        return input;
+      } else if (input is Map) {
+        final Map<String, dynamic> converted = {};
+        input.forEach((key, value) {
+          final stringKey = key?.toString() ?? '';
+          converted[stringKey] = value;
+        });
+        return converted;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error converting map: $e');
+      }
+    }
+
+    return null;
+  }
+}

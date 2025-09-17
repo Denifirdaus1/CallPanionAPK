@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>CallPanion</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>app.lovable.a4b57244d3ad47ea85cac99941e17d30</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>callpanion_elderly</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(FLUTTER_BUILD_NAME)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIMainStoryboardFile</key>
+	<string>Main</string>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+
+	<!-- Background Modes for VoIP and Audio -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>voip</string>
+		<string>audio</string>
+		<string>remote-notification</string>
+	</array>
+
+	<!-- Privacy Permissions -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>CallPanion needs microphone access for voice calls with your elderly family members.</string>
+
+	<key>NSCameraUsageDescription</key>
+	<string>CallPanion needs camera access for video calls (if supported).</string>
+
+	<key>NSContactsUsageDescription</key>
+	<string>CallPanion needs contacts access to identify callers.</string>
+
+	<key>NSPhoneCallUsageDescription</key>
+	<string>CallPanion needs phone access to make and receive calls.</string>
+
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>CallPanion needs network access to connect calls with family members.</string>
+	
+	<!-- Firebase Configuration -->
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
+	
+	<!-- CallKit Configuration -->
+	<key>CXProviderConfiguration</key>
+	<dict>
+		<key>CXHandleTypes</key>
+		<array>
+			<string>CXHandleTypeGeneric</string>
+		</array>
+		<key>CXSupportedHandleTypes</key>
+		<array>
+			<string>CXHandleTypeGeneric</string>
+		</array>
+	</dict>
+</dict>
+</plist>
