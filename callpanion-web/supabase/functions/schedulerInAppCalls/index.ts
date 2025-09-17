@@ -128,21 +128,62 @@ serve(async (req) => {
             continue;
           }
 
-          // Create call log for in-app call
-          const { data: callLog, error: logError } = await supabase
+          // Check if we already have a call log for this relative/slot today
+          const { data: existingLog, error: checkError } = await supabase
             .from('call_logs')
-            .insert({
-              user_id: schedule.relative_id,
-              relative_id: schedule.relative_id,
-              household_id: schedule.household_id,
-              call_outcome: 'initiated',
-              provider: 'webrtc',
-              call_type: 'in_app_call',
-              session_id: session.id,
-              timestamp: new Date(schedule.run_at_unix * 1000).toISOString()
-            })
-            .select()
+            .select('id')
+            .eq('relative_id', schedule.relative_id)
+            .eq('household_id', schedule.household_id)
+            .eq('call_type', 'in_app_call')
+            .gte('timestamp', new Date().toISOString().split('T')[0])
+            .lt('timestamp', new Date(Date.now() + 86400000).toISOString().split('T')[0])
             .single();
+
+          let callLog;
+          if (existingLog) {
+            console.log(`Call already logged today for relative ${schedule.relative_id}, skipping duplicate`);
+            // Update existing call log
+            const { data: updatedLog, error: updateError } = await supabase
+              .from('call_logs')
+              .update({
+                call_outcome: 'initiated',
+                session_id: session.id,
+                timestamp: new Date(schedule.run_at_unix * 1000).toISOString()
+              })
+              .eq('id', existingLog.id)
+              .select()
+              .single();
+
+            if (updateError) {
+              console.error('Error updating existing call log:', updateError);
+              failedDispatches++;
+              continue;
+            }
+            callLog = updatedLog;
+          } else {
+            // Create new call log for in-app call
+            const { data: newLog, error: logError } = await supabase
+              .from('call_logs')
+              .insert({
+                user_id: schedule.relative_id,
+                relative_id: schedule.relative_id,
+                household_id: schedule.household_id,
+                call_outcome: 'initiated',
+                provider: 'webrtc',
+                call_type: 'in_app_call',
+                session_id: session.id,
+                timestamp: new Date(schedule.run_at_unix * 1000).toISOString()
+              })
+              .select()
+              .single();
+
+            if (logError) {
+              console.error('Error creating call log:', logError);
+              failedDispatches++;
+              continue;
+            }
+            callLog = newLog;
+          }
 
           if (logError) {
             console.error('Error creating call log:', logError);
@@ -151,57 +192,116 @@ serve(async (req) => {
           }
 
           // Get device pairing for this relative to determine platform and token
+          console.log(`Searching for device pairing: household_id=${schedule.household_id}, relative_id=${schedule.relative_id}`);
+
           const { data: devicePair, error: deviceError } = await supabase
             .from('device_pairs')
-            .select('claimed_by, device_info')
+            .select('claimed_by, device_info, created_at, claimed_at')
             .eq('household_id', schedule.household_id)
             .eq('relative_id', schedule.relative_id)
-            .not('claimed_at', 'is', null)
-            .single();
+            .not('claimed_at', 'is', null);
+
+          console.log(`Device pair query result:`, { devicePair, deviceError, count: devicePair?.length || 0 });
 
           let elderlyDeviceToken = null;
           let voipToken = null;
           let platform = 'unknown';
           let tokenSource = 'none';
 
-          if (!deviceError && devicePair && devicePair.claimed_by) {
+          if (!deviceError && devicePair && devicePair.length > 0) {
+            // Use the first (most recent) device pairing
+            const activePair = devicePair[0];
+            console.log(`Found device pairing:`, {
+              claimed_by: activePair.claimed_by,
+              device_info: activePair.device_info,
+              claimed_at: activePair.claimed_at
+            });
+
             // Determine platform from device info
-            platform = devicePair.device_info?.platform || 'unknown';
-            
+            platform = activePair.device_info?.platform || 'unknown';
+            console.log(`Detected platform: ${platform}`);
+
             // Get tokens based on platform
             if (platform === 'ios') {
               // For iOS, prefer VoIP token for incoming calls
-              voipToken = devicePair.device_info?.voip_token;
-              elderlyDeviceToken = devicePair.device_info?.fcm_token;
+              voipToken = activePair.device_info?.voip_token;
+              elderlyDeviceToken = activePair.device_info?.fcm_token;
               tokenSource = 'device_pairs';
-              
+
               console.log(`iOS device detected for relative ${schedule.relative_id}`);
-              console.log(`VoIP token: ${voipToken ? 'available' : 'missing'}`);
-              console.log(`FCM token: ${elderlyDeviceToken ? 'available' : 'missing'}`);
-              
+              console.log(`VoIP token: ${voipToken ? 'available (' + voipToken.substring(0,20) + '...)' : 'missing'}`);
+              console.log(`FCM token: ${elderlyDeviceToken ? 'available (' + elderlyDeviceToken.substring(0,20) + '...)' : 'missing'}`);
+
             } else if (platform === 'android') {
               // For Android, use FCM token
-              elderlyDeviceToken = devicePair.device_info?.fcm_token;
+              elderlyDeviceToken = activePair.device_info?.fcm_token;
               tokenSource = 'device_pairs';
               console.log(`Android device detected for relative ${schedule.relative_id}`);
+              console.log(`FCM token: ${elderlyDeviceToken ? 'available (' + elderlyDeviceToken.substring(0,20) + '...)' : 'missing'}`);
+            } else {
+              console.log(`Unknown platform: ${platform}, device_info:`, activePair.device_info);
             }
-            
+
             // Fallback: get tokens from push_notification_tokens if not in device_info
-            if (!elderlyDeviceToken && !voipToken) {
+            if (!elderlyDeviceToken && !voipToken && activePair.claimed_by) {
+              console.log(`No tokens in device_info, checking push_notification_tokens for user ${activePair.claimed_by}`);
+
               const { data: fallbackTokens, error: fallbackError } = await supabase
                 .from('push_notification_tokens')
-                .select('token, platform, voip_token')
-                .eq('user_id', devicePair.claimed_by)
+                .select('token, platform, voip_token, created_at')
+                .eq('user_id', activePair.claimed_by)
                 .eq('is_active', true)
                 .order('updated_at', { ascending: false })
-                .limit(1)
-                .single();
+                .limit(5); // Get multiple to debug
 
-              if (!fallbackError && fallbackTokens) {
-                elderlyDeviceToken = fallbackTokens.token;
-                voipToken = fallbackTokens.voip_token;
-                platform = fallbackTokens.platform || platform;
+              console.log(`Push notification tokens query result:`, {
+                tokens: fallbackTokens,
+                error: fallbackError,
+                count: fallbackTokens?.length || 0
+              });
+
+              if (!fallbackError && fallbackTokens && fallbackTokens.length > 0) {
+                const latestToken = fallbackTokens[0];
+                elderlyDeviceToken = latestToken.token;
+                voipToken = latestToken.voip_token;
+                platform = latestToken.platform || platform;
                 tokenSource = 'push_notification_tokens';
+
+                console.log(`Using fallback token: platform=${platform}, token=${elderlyDeviceToken ? elderlyDeviceToken.substring(0,20) + '...' : 'none'}`);
+              } else {
+                console.log(`No fallback tokens found for user ${activePair.claimed_by}`);
+              }
+            }
+          } else {
+            console.log(`No device pairing found or error:`, { deviceError, pairCount: devicePair?.length || 0 });
+
+            // Alternative: try to find any active FCM tokens for this household
+            console.log(`Searching for alternative FCM tokens for household ${schedule.household_id}`);
+
+            const { data: householdMembers, error: memberError } = await supabase
+              .from('household_members')
+              .select('user_id')
+              .eq('household_id', schedule.household_id);
+
+            if (!memberError && householdMembers) {
+              console.log(`Found ${householdMembers.length} household members`);
+
+              for (const member of householdMembers) {
+                const { data: memberTokens, error: tokenError } = await supabase
+                  .from('push_notification_tokens')
+                  .select('token, platform, voip_token')
+                  .eq('user_id', member.user_id)
+                  .eq('is_active', true)
+                  .limit(1);
+
+                if (!tokenError && memberTokens && memberTokens.length > 0) {
+                  console.log(`Found alternative token for member ${member.user_id}: ${memberTokens[0].platform}`);
+                  elderlyDeviceToken = memberTokens[0].token;
+                  voipToken = memberTokens[0].voip_token;
+                  platform = memberTokens[0].platform || 'unknown';
+                  tokenSource = 'household_member_tokens';
+                  break;
+                }
               }
             }
           }
