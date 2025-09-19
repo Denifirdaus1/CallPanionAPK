@@ -6,6 +6,167 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Enhanced retry configuration for notifications
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelay: 1000,
+  maxDelay: 5000
+};
+
+// Enhanced error tracking
+interface SchedulerError {
+  type: 'SESSION_CREATION' | 'TOKEN_MISSING' | 'NOTIFICATION_FAILED' | 'DATABASE_ERROR';
+  message: string;
+  relativeId: string;
+  householdId: string;
+  retryable: boolean;
+}
+
+// Retry function for critical operations
+async function retryOperation<T>(
+  operation: () => Promise<T>,
+  config = RETRY_CONFIG
+): Promise<T> {
+  let lastError: Error;
+
+  for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+
+      if (attempt === config.maxRetries) break;
+
+      const delay = Math.min(
+        config.baseDelay * Math.pow(2, attempt),
+        config.maxDelay
+      );
+
+      console.warn(`[Scheduler] Attempt ${attempt + 1} failed, retrying in ${delay}ms:`, error.message);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError!;
+}
+
+// Enhanced notification sending with retry
+async function sendNotificationWithRetry(
+  supabase: any,
+  notificationData: any,
+  platform: string,
+  retries = 2
+): Promise<{ success: boolean; error?: any }> {
+  return retryOperation(async () => {
+    let result;
+
+    if (platform === 'ios' && notificationData.voipToken) {
+      // Send APNS VoIP notification for iOS
+      result = await supabase.functions.invoke('send-apns-voip-notification', {
+        body: notificationData
+      });
+    } else if (notificationData.deviceToken) {
+      // Send FCM notification for Android or iOS fallback
+      result = await supabase.functions.invoke('send-fcm-notification', {
+        body: notificationData
+      });
+    } else {
+      throw new Error('No suitable notification method available');
+    }
+
+    if (result.error) {
+      throw new Error(`Notification failed: ${result.error.message || 'Unknown error'}`);
+    }
+
+    return { success: true };
+  });
+}
+
+// Broadcast real-time update to household dashboard
+async function broadcastCallScheduled(
+  supabase: any,
+  householdId: string,
+  sessionData: any,
+  relativeName: string
+): Promise<void> {
+  try {
+    const channel = supabase.channel(`household:${householdId}`);
+    await channel.send({
+      type: 'broadcast',
+      event: 'call_scheduled',
+      payload: {
+        session_id: sessionData.id,
+        relative_id: sessionData.relative_id,
+        relative_name: relativeName,
+        household_id: householdId,
+        call_type: 'in_app_call',
+        status: 'scheduled',
+        scheduled_time: sessionData.scheduled_time,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+    console.log(`[Scheduler] Broadcasted call_scheduled to household ${householdId}`);
+  } catch (error) {
+    console.warn('[Scheduler] Failed to broadcast call scheduled event:', error.message);
+    // Don't throw - broadcasting is non-critical
+  }
+}
+
+// Enhanced session creation with conversation tracking
+async function createCallSessionWithTracking(
+  supabase: any,
+  schedule: any
+): Promise<any> {
+  return retryOperation(async () => {
+    // Create call session for WebRTC
+    const { data: session, error: sessionError } = await supabase
+      .from('call_sessions')
+      .insert({
+        household_id: schedule.household_id,
+        relative_id: schedule.relative_id,
+        status: 'scheduled',
+        provider: 'webrtc',
+        call_type: 'in_app_call',
+        scheduled_time: new Date(schedule.run_at_unix * 1000).toISOString(),
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (sessionError) {
+      throw new Error(`Session creation failed: ${sessionError.message}`);
+    }
+
+    // Also create a placeholder conversation record for tracking
+    try {
+      await supabase
+        .from('conversations')
+        .insert({
+          session_id: `scheduled_${session.id}`,
+          user_id: schedule.relative_id,
+          status: 'scheduled',
+          conversation_config: {
+            call_type: 'in_app_call',
+            session_id: session.id,
+            household_id: schedule.household_id,
+            relative_id: schedule.relative_id,
+            scheduled_time: session.scheduled_time
+          },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+      console.log(`[Scheduler] Created conversation tracking for session ${session.id}`);
+    } catch (convError) {
+      console.warn('[Scheduler] Failed to create conversation tracking:', convError.message);
+      // Don't fail session creation for conversation tracking errors
+    }
+
+    return session;
+  });
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -101,32 +262,20 @@ serve(async (req) => {
 
     let successfulDispatches = 0;
     let failedDispatches = 0;
+    const errors: SchedulerError[] = [];
+
+    console.log(`[Scheduler] Processing ${inAppCallSchedules.length} in-app call schedules`);
 
     // Process in-app calls (WebRTC + Push Notifications)
     if (inAppCallSchedules.length > 0) {
       for (const schedule of inAppCallSchedules) {
         try {
-          console.log(`Processing in-app call for relative ${schedule.relative_id}`);
+          console.log(`[Scheduler] Processing in-app call for relative ${schedule.relative_id} in household ${schedule.household_id}`);
 
-          // Create call session for WebRTC
-          const { data: session, error: sessionError } = await supabase
-            .from('call_sessions')
-            .insert({
-              household_id: schedule.household_id,
-              relative_id: schedule.relative_id,
-              status: 'scheduled',
-              provider: 'webrtc',
-              call_type: 'in_app_call',
-              scheduled_time: new Date(schedule.run_at_unix * 1000).toISOString()
-            })
-            .select()
-            .single();
+          // Create call session with enhanced tracking
+          const session = await createCallSessionWithTracking(supabase, schedule);
 
-          if (sessionError) {
-            console.error('Error creating call session:', sessionError);
-            failedDispatches++;
-            continue;
-          }
+          console.log(`[Scheduler] Created session ${session.id} for relative ${schedule.relative_id}`);
 
           // Check if we already have a call log for this relative/slot today
           const { data: existingLog, error: checkError } = await supabase
@@ -322,74 +471,65 @@ serve(async (req) => {
               .single();
 
             if (!relativeError && relative) {
-              // Send platform-specific notification to elderly device
+              const relativeName = `${relative.first_name} ${relative.last_name}`;
+
+              // Prepare notification data
+              const notificationData = {
+                voipToken: voipToken,
+                deviceToken: elderlyDeviceToken,
+                title: platform === 'ios' && voipToken ? 'Incoming Call' : 'Time for Your Call',
+                body: platform === 'ios' && voipToken ?
+                  `${relative.first_name} is calling` :
+                  `Your family is ready to talk with you, ${relative.first_name}!`,
+                data: {
+                  type: 'incoming_call',
+                  sessionId: session.id,
+                  relativeName: relativeName,
+                  householdId: schedule.household_id,
+                  relativeId: schedule.relative_id,
+                  callType: 'in_app_call',
+                  handle: 'CallPanion',
+                  avatar: '',
+                  duration: '30000'
+                },
+                householdId: schedule.household_id,
+                relativeId: schedule.relative_id,
+                ...(session.id && { callSessionId: session.id })
+              };
+
+              // Send platform-specific notification with retry
               try {
-                let notifyError = null;
-                
-                if (platform === 'ios' && voipToken) {
-                  // Use APNS VoIP notification for iOS
-                  console.log(`Sending APNS VoIP notification to iOS device for relative ${schedule.relative_id}`);
-                  const { error } = await supabase.functions.invoke('send-apns-voip-notification', {
-                    body: {
-                      voipToken: voipToken,
-                      deviceToken: elderlyDeviceToken,
-                      title: 'Incoming Call',
-                      body: `${relative.first_name} is calling`,
-                      data: {
-                        type: 'incoming_call',
-                        sessionId: session.id,
-                        relativeName: `${relative.first_name} ${relative.last_name}`,
-                        householdId: schedule.household_id,
-                        relativeId: schedule.relative_id,
-                        callType: 'in_app_call',
-                        handle: 'CallPanion',
-                        avatar: '',
-                        duration: '30000'
-                      },
-                      householdId: schedule.household_id,
-                      relativeId: schedule.relative_id,
-                      callSessionId: session.id
-                    }
-                  });
-                  notifyError = error;
-                  
-                } else if (elderlyDeviceToken) {
-                  // Use FCM notification for Android or iOS fallback
-                  console.log(`Sending FCM notification to ${platform} device for relative ${schedule.relative_id}`);
-                  const { error } = await supabase.functions.invoke('send-fcm-notification', {
-                    body: {
-                      deviceToken: elderlyDeviceToken,
-                      title: 'Time for Your Call',
-                      body: `Your family is ready to talk with you, ${relative.first_name}!`,
-                      data: {
-                        type: 'incoming_call',
-                        sessionId: session.id,
-                        relativeName: `${relative.first_name} ${relative.last_name}`,
-                        householdId: schedule.household_id,
-                        relativeId: schedule.relative_id,
-                        callType: 'in_app_call',
-                        handle: 'CallPanion',
-                        avatar: '',
-                        duration: '30000'
-                      },
-                      householdId: schedule.household_id,
-                      relativeId: schedule.relative_id
-                    }
-                  });
-                  notifyError = error;
+                console.log(`[Scheduler] Sending ${platform === 'ios' && voipToken ? 'APNS VoIP' : 'FCM'} notification to ${platform} device for relative ${schedule.relative_id}`);
+
+                const notificationResult = await sendNotificationWithRetry(
+                  supabase,
+                  notificationData,
+                  platform
+                );
+
+                if (notificationResult.success) {
+                  console.log(`[Scheduler] ✅ ${platform === 'ios' && voipToken ? 'APNS VoIP' : 'FCM'} notification sent successfully to relative ${schedule.relative_id} (${platform}, token from ${tokenSource})`);
+
+                  // Broadcast to dashboard that call was scheduled
+                  await broadcastCallScheduled(supabase, schedule.household_id, session, relativeName);
+
                 } else {
-                  throw new Error('No suitable token available for notification');
+                  throw new Error(notificationResult.error?.message || 'Notification failed');
                 }
 
-                if (notifyError) {
-                  console.error(`Error sending ${platform === 'ios' && voipToken ? 'APNS VoIP' : 'FCM'} notification to elderly device:`, notifyError);
-                  failedDispatches++;
-                } else {
-                  console.log(`${platform === 'ios' && voipToken ? 'APNS VoIP' : 'FCM'} notification sent to elderly device for relative ${schedule.relative_id} (${platform}, token from ${tokenSource})`);
-                }
               } catch (pushError) {
-                console.error('Notification to elderly device failed:', pushError);
-                // Don't fail the whole process for push notification issues
+                console.error(`[Scheduler] ❌ Notification to elderly device failed:`, pushError.message);
+
+                errors.push({
+                  type: 'NOTIFICATION_FAILED',
+                  message: pushError.message,
+                  relativeId: schedule.relative_id,
+                  householdId: schedule.household_id,
+                  retryable: true
+                });
+
+                // Don't increment failedDispatches here - session was created successfully
+                // The notification failure is tracked separately
               }
 
               // Also notify family members that the call was scheduled
@@ -426,7 +566,16 @@ serve(async (req) => {
               }
             }
           } else {
-            console.warn(`No FCM token available for relative ${schedule.relative_id} in household ${schedule.household_id} - skipping notification`);
+            console.warn(`[Scheduler] ❌ No FCM token available for relative ${schedule.relative_id} in household ${schedule.household_id} - skipping notification`);
+
+            errors.push({
+              type: 'TOKEN_MISSING',
+              message: `No FCM/VoIP token available for notification (platform: ${platform}, token source: ${tokenSource})`,
+              relativeId: schedule.relative_id,
+              householdId: schedule.household_id,
+              retryable: false
+            });
+
             failedDispatches++;
             continue;
           }
@@ -438,51 +587,102 @@ serve(async (req) => {
               relative_id: schedule.relative_id,
               household_id: schedule.household_id,
               call_date: new Date().toISOString().split('T')[0],
-              [`${schedule.slot_type}_called`]: true
+              [`${schedule.slot_type}_called`]: true,
+              updated_at: new Date().toISOString()
             }, {
               onConflict: 'relative_id,household_id,call_date'
             });
 
           successfulDispatches++;
-          console.log(`Successfully scheduled in-app call for relative ${schedule.relative_id}`);
+          console.log(`[Scheduler] ✅ Successfully scheduled in-app call for relative ${schedule.relative_id} - session ${session.id}`);
 
         } catch (error) {
-          console.error('Error processing in-app call schedule:', error);
+          console.error(`[Scheduler] ❌ Error processing in-app call schedule for relative ${schedule.relative_id}:`, error.message);
+
+          errors.push({
+            type: error.message.includes('Session creation') ? 'SESSION_CREATION' :
+                  error.message.includes('Database') ? 'DATABASE_ERROR' : 'DATABASE_ERROR',
+            message: error.message,
+            relativeId: schedule.relative_id,
+            householdId: schedule.household_id,
+            retryable: true
+          });
+
           failedDispatches++;
         }
       }
     }
 
-    // Update heartbeat
+    // Enhanced heartbeat with detailed error tracking
+    const heartbeatStatus = failedDispatches === 0 ? 'success' : 'partial_success';
+    const notificationErrors = errors.filter(e => e.type === 'NOTIFICATION_FAILED').length;
+    const tokenErrors = errors.filter(e => e.type === 'TOKEN_MISSING').length;
+    const sessionErrors = errors.filter(e => e.type === 'SESSION_CREATION').length;
+    const dbErrors = errors.filter(e => e.type === 'DATABASE_ERROR').length;
+
     await supabase
       .from('cron_heartbeat')
       .upsert({
         job_name: 'callpanion-in-app-calls',
         last_run: new Date().toISOString(),
-        status: 'success',
+        status: heartbeatStatus,
         details: {
-          scheduled_calls: successfulDispatches,
-          failed_calls: failedDispatches,
-          total_due_schedules: dueSchedules.length,
-          in_app_schedules: inAppCallSchedules.length,
-          missing_tokens: failedDispatches,
-          timestamp: new Date().toISOString()
+          summary: {
+            scheduled_calls: successfulDispatches,
+            failed_calls: failedDispatches,
+            total_due_schedules: dueSchedules.length,
+            in_app_schedules: inAppCallSchedules.length,
+            success_rate: inAppCallSchedules.length > 0 ?
+              Math.round((successfulDispatches / inAppCallSchedules.length) * 100) : 100
+          },
+          error_breakdown: {
+            notification_failures: notificationErrors,
+            missing_tokens: tokenErrors,
+            session_creation_failures: sessionErrors,
+            database_errors: dbErrors,
+            total_errors: errors.length
+          },
+          errors: errors.slice(0, 10), // Keep last 10 errors for debugging
+          timestamp: new Date().toISOString(),
+          environment: {
+            function_version: '2.0.0',
+            enhanced_features: ['retry_mechanism', 'conversation_tracking', 'real_time_broadcasting']
+          }
         }
       }, {
         onConflict: 'job_name'
       });
 
     console.log('=== schedulerInAppCalls completed ===');
-    console.log(`Successful dispatches: ${successfulDispatches}`);
-    console.log(`Failed dispatches: ${failedDispatches}`);
+    console.log(`[Scheduler] ✅ Successful dispatches: ${successfulDispatches}`);
+    console.log(`[Scheduler] ❌ Failed dispatches: ${failedDispatches}`);
+    if (errors.length > 0) {
+      console.log(`[Scheduler] 📋 Error breakdown:`);
+      console.log(`  - Notification failures: ${notificationErrors}`);
+      console.log(`  - Missing tokens: ${tokenErrors}`);
+      console.log(`  - Session creation failures: ${sessionErrors}`);
+      console.log(`  - Database errors: ${dbErrors}`);
+    }
 
-    return new Response(JSON.stringify({ 
-      success: true, 
+    return new Response(JSON.stringify({
+      success: true,
       message: 'In-app call scheduling completed',
-      dispatched: successfulDispatches,
-      failed: failedDispatches,
-      total_due_schedules: dueSchedules.length,
-      in_app_schedules: inAppCallSchedules.length
+      summary: {
+        dispatched: successfulDispatches,
+        failed: failedDispatches,
+        total_due_schedules: dueSchedules.length,
+        in_app_schedules: inAppCallSchedules.length,
+        success_rate: inAppCallSchedules.length > 0 ?
+          Math.round((successfulDispatches / inAppCallSchedules.length) * 100) : 100
+      },
+      error_breakdown: {
+        notification_failures: notificationErrors,
+        missing_tokens: tokenErrors,
+        session_creation_failures: sessionErrors,
+        database_errors: dbErrors
+      },
+      retryable_errors: errors.filter(e => e.retryable).length,
+      timestamp: new Date().toISOString()
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

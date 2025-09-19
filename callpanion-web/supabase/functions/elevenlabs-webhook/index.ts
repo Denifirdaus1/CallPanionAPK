@@ -444,22 +444,67 @@ Deno.serve(async (req) => {
       .single();
     if (logErr) console.error("call_logs upsert error", logErr);
 
-    // 3) upsert summaries with provider_call_id conflict resolution
+    // 3) Update conversation tracking tables for webhook correlation
+    if (isInAppCall && provider_call_id) {
+      try {
+        // Update conversations table status
+        const conversationStatus = call_status === 'answered' ? 'completed' : 'failed';
+        await sb.from("conversations")
+          .update({
+            status: conversationStatus,
+            ...(conversationStatus === 'completed' && { ended_at: new Date().toISOString() }),
+            updated_at: new Date().toISOString()
+          })
+          .eq("session_id", provider_call_id);
+
+        // Log detailed conversation event
+        await sb.from("conversation_events")
+          .insert({
+            conversation_id: provider_call_id,
+            event_type: conversationStatus === 'completed' ? 'conversation_ended' : 'conversation_error',
+            event_data: {
+              provider_call_id,
+              call_status,
+              duration_seconds: duration_secs,
+              session_id,
+              household_id,
+              relative_id,
+              analysis_data: {
+                data_collection: dc,
+                evaluation: evaln,
+                summary: detailedSummary
+              },
+              webhook_timestamp: new Date().toISOString()
+            },
+            sequence_number: Math.floor(Date.now() / 1000)
+          });
+
+        console.info("✅ IN-APP: Updated conversation tracking tables for:", {
+          provider_call_id,
+          status: conversationStatus
+        });
+      } catch (convErr) {
+        console.error("Error updating conversation tracking:", convErr);
+        // Don't fail the webhook for conversation tracking errors
+      }
+    }
+
+    // 4) upsert summaries with provider_call_id conflict resolution
     const coerced = toIntScore1to5(dc?.mood_score);
     if (coerced === null && dc?.mood_score != null) {
       console.info("EL mood_score coerced→null (out of range / NaN)", dc?.mood_score);
     }
     const moodScore = coerced;
-    
+
     // Extract detailed summary from ElevenLabs analysis
     const detailedSummary = data?.summary ?? analysis?.summary ?? null;
     const tlDr = analysis?.transcript_summary ?? detailedSummary ?? null;
     const transcriptUrl = meta?.transcript_url ?? null;
-    
+
     // Extract notes and highlights from data collection
     const notes = dc?.notes ?? null;
     const highlight = dc?.highlight_one_line ?? null;
-    
+
     // Calculate criteria evaluation score
     const criteriaEval = calculateCriteriaScore(evaln);
 
@@ -467,7 +512,7 @@ Deno.serve(async (req) => {
     let moodText = null;
     if (moodScore) {
       if (moodScore >= 4) moodText = 'positive';
-      else if (moodScore >= 3) moodText = 'neutral'; 
+      else if (moodScore >= 3) moodText = 'neutral';
       else moodText = 'concerning';
     } else if (dc?.flag_lonely || dc?.flag_confused || dc?.flag_fall_risk || dc?.flag_low_appetite) {
       moodText = 'concerning';
@@ -491,11 +536,11 @@ Deno.serve(async (req) => {
         relative_id: relative_id ?? null,
         mood: moodText,
         mood_score: moodScore,
-        key_points: { 
+        key_points: {
           call_type: callType,
           agent_id: agent_id,
           session_id: isInAppCall ? session_id : null,
-          data_collection: dc, 
+          data_collection: dc,
           evaluation: evaln,
           criteria_evaluation: {
             score: criteriaEval.score,
@@ -515,7 +560,65 @@ Deno.serve(async (req) => {
       }, { onConflict: "provider_call_id" });
     if (sumErr) console.error("call_summaries upsert error", sumErr);
 
+    // 5) Real-time dashboard broadcasting for completed calls
+    if (household_id && (call_status === 'answered' || call_status === 'failed')) {
+      try {
+        const eventType = call_status === 'answered' ? 'call_completed' : 'call_failed';
+
+        // Get relative info for broadcast
+        const { data: relativeInfo } = await sb.from("relatives")
+          .select("first_name, last_name")
+          .eq("id", relative_id)
+          .single();
+
+        const relativeName = relativeInfo ?
+          `${relativeInfo.first_name} ${relativeInfo.last_name}` :
+          'Unknown Relative';
+
+        const channel = sb.channel(`household:${household_id}`);
+        await channel.send({
+          type: 'broadcast',
+          event: eventType,
+          payload: {
+            provider_call_id,
+            relative_id,
+            relative_name: relativeName,
+            call_type: callType,
+            call_status,
+            duration_seconds: duration_secs,
+            mood_score: moodScore,
+            mood_text: moodText,
+            summary: tlDr,
+            timestamp: occurred_at,
+            household_id,
+            ...(isInAppCall && { session_id }),
+            emergency_flag: !!dc?.emergency_flag,
+            health_concerns: !!(dc?.flag_fall_risk || dc?.flag_low_appetite || dc?.flag_confused)
+          }
+        });
+
+        console.info(`✅ BROADCAST: ${eventType} sent to household ${household_id}`, {
+          provider_call_id,
+          relative_name: relativeName,
+          call_type: callType
+        });
+      } catch (broadcastErr) {
+        console.warn("Failed to broadcast call completion to dashboard:", broadcastErr);
+        // Don't fail webhook for broadcast errors
+      }
+    }
+
     // Fast ACK: return 200 OK even if downstream inserts warn
+    console.info("✅ WEBHOOK: Successfully processed ElevenLabs webhook", {
+      provider_call_id,
+      call_type: callType,
+      call_status,
+      household_id,
+      relative_id,
+      has_summary: !!tlDr,
+      duration_seconds: duration_secs
+    });
+
     return new Response("ok", { status: 200 });
   } catch (e) {
     console.error("elevenlabs-webhook error", e);
