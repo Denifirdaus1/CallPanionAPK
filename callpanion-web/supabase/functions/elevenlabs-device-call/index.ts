@@ -677,7 +677,10 @@ serve(async (req) => {
       error: error.message,
       type: error instanceof ConversationError ? error.type : 'UNKNOWN_ERROR',
       retryable: error instanceof ConversationError ? error.retryable : false,
-      action: (await req.json())?.action || 'unknown'
+      action: requestBody?.action || 'unknown',
+      sessionId: requestBody?.sessionId || 'unknown',
+      timestamp: new Date().toISOString(),
+      stack: error instanceof Error ? error.stack?.split('\n').slice(0, 3) : null
     });
 
     // Enhanced error response based on error type

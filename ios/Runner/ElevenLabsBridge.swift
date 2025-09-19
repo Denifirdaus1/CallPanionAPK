@@ -124,43 +124,54 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
     // MARK: - Enhanced Conversation Management
 
     private func handleStartConversation(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        print("[ElevenLabsBridge] 🚀 handleStartConversation called")
+
         guard let args = call.arguments as? [String: Any],
               let token = args["token"] as? String else {
-            result(FlutterError(code: "INVALID_ARGUMENT", message: "Token required", details: nil))
+            print("[ElevenLabsBridge] ❌ Invalid arguments - token missing")
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "Token required", details: ["provided_args": args?.keys.joined(separator: ", ") ?? "none"]))
             return
         }
 
         // Prevent multiple concurrent sessions
         guard conversationState == .idle else {
-            result(FlutterError(code: "CONVERSATION_ACTIVE", message: "A conversation is already active", details: nil))
+            print("[ElevenLabsBridge] ❌ Conversation already active, state: \(conversationStateString(conversationState))")
+            result(FlutterError(code: "CONVERSATION_ACTIVE", message: "A conversation is already active", details: ["current_state": conversationStateString(conversationState)]))
             return
         }
 
         // Extract dynamic variables
         let dynamicVariables = args["dynamicVariables"] as? [String: String] ?? [:]
 
-        print("[ElevenLabsBridge] Starting conversation with token")
-        print("[ElevenLabsBridge] Dynamic variables: \(dynamicVariables)")
+        print("[ElevenLabsBridge] 🔐 Token received (length: \(token.count))")
+        print("[ElevenLabsBridge] 📋 Dynamic variables: \(dynamicVariables)")
 
         conversationState = .connecting
         connectionStartTime = Date()
 
         Task { @MainActor in
             do {
+                print("[ElevenLabsBridge] 🎵 Configuring audio session...")
+
                 // Configure audio session for VoIP
                 try audioSession?.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .defaultToSpeaker])
                 try audioSession?.setActive(true)
 
+                print("[ElevenLabsBridge] ✅ Audio session configured successfully")
+
                 // Create conversation config
+                print("[ElevenLabsBridge] 🔧 Creating conversation config...")
                 let config = ConversationConfig(
                     conversationToken: token,
                     dynamicVariables: dynamicVariables
                 )
 
                 // Start conversation
+                print("[ElevenLabsBridge] 🎤 Creating conversation instance...")
                 self.conversation = Conversation()
                 self.setupConversationHandlers()
 
+                print("[ElevenLabsBridge] 🔗 Starting conversation session...")
                 let conversationId = try await self.conversation!.startSession(config: config)
 
                 // Update state and metadata
@@ -172,10 +183,15 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
                 ]
 
                 print("[ElevenLabsBridge] ✅ Conversation started successfully: \(conversationId)")
+                print("[ElevenLabsBridge] 📊 Metadata: \(self.conversationMetadata)")
 
                 result(conversationId)
 
             } catch {
+                print("[ElevenLabsBridge] ❌ Error starting conversation: \(error)")
+                print("[ElevenLabsBridge] 🔍 Error type: \(type(of: error))")
+                print("[ElevenLabsBridge] 🔍 Error details: \(error.localizedDescription)")
+
                 self.conversationState = .error
                 self.handleError(error, result: result)
             }

@@ -76,11 +76,26 @@ class ConversationException implements Exception {
   final String message;
   final String? code;
   final bool retryable;
+  final String? debugInfo;
+  final DateTime timestamp;
 
-  ConversationException(this.message, {this.code, this.retryable = false});
+  ConversationException(
+    this.message, {
+    this.code,
+    this.retryable = false,
+    this.debugInfo,
+  }) : timestamp = DateTime.now();
 
   @override
-  String toString() => 'ConversationException: $message';
+  String toString() => 'ConversationException: $message${code != null ? ' (Code: $code)' : ''}';
+
+  Map<String, dynamic> toJson() => {
+    'message': message,
+    'code': code,
+    'retryable': retryable,
+    'debugInfo': debugInfo,
+    'timestamp': timestamp.toIso8601String(),
+  };
 }
 
 class ElevenLabsCallService {
@@ -155,6 +170,9 @@ class ElevenLabsCallService {
     Map<String, String>? dynamicVariables,
   }) async {
     try {
+      print('[ElevenLabsService] 🚀 Starting conversation with token: ${conversationToken.substring(0, 20)}...');
+      print('[ElevenLabsService] 📋 Dynamic variables: $dynamicVariables');
+
       _conversationState = ConversationState.connecting;
       _connectionStartTime = DateTime.now();
 
@@ -168,14 +186,38 @@ class ElevenLabsCallService {
         _conversationState = ConversationState.connected;
         _isCallActive = true;
 
-        print('[ElevenLabsService] ✅ Conversation started: $conversationId');
+        print('[ElevenLabsService] ✅ Conversation started successfully: $conversationId');
         return conversationId;
       } else {
-        throw ConversationException('Failed to start conversation - no ID returned');
+        final errorMsg = 'Failed to start conversation - no ID returned from native bridge';
+        print('[ElevenLabsService] ❌ $errorMsg');
+        throw ConversationException(
+          errorMsg,
+          code: 'NO_CONVERSATION_ID',
+          debugInfo: 'Native bridge returned null conversation ID',
+        );
       }
     } on PlatformException catch (e) {
       _conversationState = ConversationState.error;
-      throw ConversationException(_mapErrorCode(e.code), code: e.code);
+      final errorMsg = _mapErrorCode(e.code);
+      print('[ElevenLabsService] ❌ Platform Exception: ${e.code} - ${e.message}');
+      print('[ElevenLabsService] 🔍 Details: ${e.details}');
+
+      throw ConversationException(
+        errorMsg,
+        code: e.code,
+        retryable: _isRetryableError(e.code),
+        debugInfo: 'Platform: ${e.code}, Message: ${e.message}, Details: ${e.details}',
+      );
+    } catch (e) {
+      _conversationState = ConversationState.error;
+      print('[ElevenLabsService] ❌ Unexpected error starting conversation: $e');
+
+      throw ConversationException(
+        'Unexpected error starting conversation',
+        code: 'UNKNOWN_ERROR',
+        debugInfo: 'Exception: ${e.toString()}, Type: ${e.runtimeType}',
+      );
     }
   }
 
@@ -224,9 +266,57 @@ class ElevenLabsCallService {
         return 'Invalid conversation parameters';
       case 'CONVERSATION_NOT_ACTIVE':
         return 'No active conversation';
+      case 'CONVERSATION_ACTIVE':
+        return 'A conversation is already active';
+      case 'CONNECTION_FAILED':
+        return 'Failed to establish WebRTC connection';
+      case 'AUDIO_SESSION_ERROR':
+        return 'Audio session configuration failed';
+      case 'NO_CONVERSATION_ID':
+        return 'Failed to get conversation ID from native SDK';
       default:
-        return 'Unknown error occurred';
+        return 'Unknown error occurred: $code';
     }
+  }
+
+  // Check if error is retryable
+  bool _isRetryableError(String code) {
+    switch (code) {
+      case 'NETWORK_ERROR':
+      case 'CONNECTION_FAILED':
+      case 'API_ERROR':
+        return true;
+      case 'PERMISSION_DENIED':
+      case 'TOKEN_EXPIRED':
+      case 'INVALID_ARGUMENT':
+      case 'CONVERSATION_ACTIVE':
+        return false;
+      default:
+        return false;
+    }
+  }
+
+  // Enhanced debug logging
+  void _logDebug(String message, {Map<String, dynamic>? data}) {
+    final timestamp = DateTime.now().toIso8601String();
+    print('[ElevenLabsService] $timestamp: $message');
+    if (data != null) {
+      print('[ElevenLabsService] Debug data: ${json.encode(data)}');
+    }
+  }
+
+  // Get detailed service state for debugging
+  Map<String, dynamic> getDebugState() {
+    return {
+      'isCallActive': _isCallActive,
+      'currentSessionId': _currentSessionId,
+      'currentConversationId': _currentConversationId,
+      'conversationState': _conversationState.toString(),
+      'connectionStartTime': _connectionStartTime?.toIso8601String(),
+      'connectionDuration': connectionDuration?.inSeconds,
+      'conversationMetadata': _conversationMetadata,
+      'hasEventSubscription': _eventSubscription != null,
+    };
   }
 
   // Update internal state based on native events
@@ -260,16 +350,36 @@ class ElevenLabsCallService {
   // Start ElevenLabs WebRTC call when user accepts
   Future<Map<String, dynamic>?> startElevenLabsCall(String sessionId) async {
     try {
+      _logDebug('🚀 Starting ElevenLabs call', data: {'sessionId': sessionId});
+
       // Request microphone permission
       if (!await _requestMicrophonePermission()) {
-        print('❌ Microphone permission denied');
-        return null;
+        _logDebug('❌ Microphone permission denied');
+        throw ConversationException(
+          'Microphone permission is required for voice calls',
+          code: 'PERMISSION_DENIED',
+          debugInfo: 'User denied microphone permission',
+        );
       }
 
       // Get pairing token and device token for authentication
       final prefs = await SharedPreferences.getInstance();
       final pairingToken = prefs.getString(AppConstants.keyPairingToken);
       final deviceToken = prefs.getString(AppConstants.keyDeviceToken);
+
+      if (pairingToken == null || deviceToken == null) {
+        _logDebug('❌ Missing authentication tokens', data: {
+          'hasPairingToken': pairingToken != null,
+          'hasDeviceToken': deviceToken != null,
+        });
+        throw ConversationException(
+          'Device not properly paired. Please pair device again.',
+          code: 'AUTHENTICATION_ERROR',
+          debugInfo: 'Missing pairing token or device token',
+        );
+      }
+
+      _logDebug('🔗 Requesting conversation token from Edge Function');
 
       // Get conversation token from our device-specific edge function
       final response = await http.post(
@@ -286,9 +396,28 @@ class ElevenLabsCallService {
         }),
       );
 
+      _logDebug('📡 Edge Function response', data: {
+        'statusCode': response.statusCode,
+        'hasBody': response.body.isNotEmpty,
+      });
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        print('✅ ElevenLabs conversation token received: ${data['conversationToken'] != null}');
+
+        if (data['conversationToken'] == null) {
+          _logDebug('❌ No conversation token in response', data: {'responseData': data});
+          throw ConversationException(
+            'Failed to get conversation token from server',
+            code: 'TOKEN_MISSING',
+            debugInfo: 'Edge Function returned success but no token: ${json.encode(data)}',
+          );
+        }
+
+        _logDebug('✅ Conversation token received', data: {
+          'hasToken': data['conversationToken'] != null,
+          'tokenLength': data['conversationToken']?.length,
+          'hasCallLogId': data['callLogId'] != null,
+        });
 
         _currentSessionId = sessionId;
 
@@ -304,6 +433,8 @@ class ElevenLabsCallService {
           },
         );
 
+        _logDebug('✅ Native conversation started', data: {'conversationId': conversationId});
+
         // Update call log with conversation ID if available
         if (data['callLogId'] != null) {
           await _updateCallLogWithConversationId(
@@ -314,15 +445,51 @@ class ElevenLabsCallService {
 
         return data;
       } else {
-        print('❌ Failed to start ElevenLabs call: ${response.body}');
-        throw Exception('Failed to get conversation token: ${response.statusCode}');
+        final errorBody = response.body;
+        _logDebug('❌ Edge Function error', data: {
+          'statusCode': response.statusCode,
+          'errorBody': errorBody,
+        });
+
+        String errorMessage;
+        String errorCode;
+
+        try {
+          final errorData = json.decode(errorBody);
+          errorMessage = errorData['error'] ?? 'Unknown server error';
+          errorCode = 'SERVER_ERROR_${response.statusCode}';
+        } catch (_) {
+          errorMessage = 'Server error: ${response.statusCode}';
+          errorCode = 'SERVER_ERROR_${response.statusCode}';
+        }
+
+        throw ConversationException(
+          errorMessage,
+          code: errorCode,
+          retryable: response.statusCode >= 500,
+          debugInfo: 'HTTP ${response.statusCode}: $errorBody',
+        );
       }
-    } catch (e) {
-      print('❌ Error starting ElevenLabs call: $e');
-      // Ensure call state is reset on error
+    } on ConversationException {
+      // Re-throw conversation exceptions as-is
       _isCallActive = false;
       _currentSessionId = null;
       rethrow;
+    } catch (e) {
+      _logDebug('❌ Unexpected error starting ElevenLabs call', data: {
+        'error': e.toString(),
+        'type': e.runtimeType.toString(),
+      });
+
+      // Ensure call state is reset on error
+      _isCallActive = false;
+      _currentSessionId = null;
+
+      throw ConversationException(
+        'Unexpected error starting call',
+        code: 'UNKNOWN_ERROR',
+        debugInfo: 'Exception: ${e.toString()}, Type: ${e.runtimeType}',
+      );
     }
   }
 

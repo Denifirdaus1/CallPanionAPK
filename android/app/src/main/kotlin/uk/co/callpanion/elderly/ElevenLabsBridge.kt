@@ -112,28 +112,44 @@ class ElevenLabsBridge(
     // MARK: - Enhanced Conversation Management
 
     private fun handleStartConversation(call: MethodCall, result: MethodChannel.Result) {
+        Log.d(TAG, "🚀 handleStartConversation called")
+
         val token = call.argument<String>("token") ?: run {
-            result.error("INVALID_ARGUMENT", "Token required", null)
+            Log.e(TAG, "❌ Invalid arguments - token missing")
+            val providedArgs = call.arguments?.let { (it as? Map<*, *>)?.keys?.joinToString(", ") } ?: "none"
+            result.error("INVALID_ARGUMENT", "Token required", mapOf("provided_args" to providedArgs))
             return
         }
 
         // Prevent multiple concurrent sessions
         if (conversationState != ConversationState.IDLE) {
-            result.error("CONVERSATION_ACTIVE", "A conversation is already active", null)
+            Log.e(TAG, "❌ Conversation already active, state: ${conversationState.name}")
+            result.error("CONVERSATION_ACTIVE", "A conversation is already active", mapOf("current_state" to conversationState.name))
             return
         }
 
         // Extract dynamic variables
         val dynamicVariables = call.argument<Map<String, String>>("dynamicVariables") ?: emptyMap()
 
-        Log.d(TAG, "Starting conversation with token")
-        Log.d(TAG, "Dynamic variables: $dynamicVariables")
+        Log.d(TAG, "🔐 Token received (length: ${token.length})")
+        Log.d(TAG, "📋 Dynamic variables: $dynamicVariables")
 
         conversationState = ConversationState.CONNECTING
         connectionStartTime = System.currentTimeMillis()
 
         coroutineScope.launch {
             try {
+                Log.d(TAG, "🎵 Configuring audio session...")
+
+                // Configure audio session for the call
+                withContext(Dispatchers.Main) {
+                    audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
+                }
+
+                Log.d(TAG, "✅ Audio session configured successfully")
+
+                Log.d(TAG, "🔧 Creating conversation session...")
+
                 // Create conversation session
                 conversationSession = elevenLabsSDK?.createConversationSession(
                     ConversationConfig(
@@ -142,21 +158,37 @@ class ElevenLabsBridge(
                     )
                 )
 
+                if (conversationSession == null) {
+                    throw Exception("Failed to create conversation session - SDK returned null")
+                }
+
+                Log.d(TAG, "🎤 Setting up session handlers...")
                 setupSessionHandlers()
+
+                Log.d(TAG, "🔗 Starting conversation session...")
                 val conversationId = conversationSession?.startSession()
+
+                if (conversationId.isNullOrEmpty()) {
+                    throw Exception("Failed to start session - no conversation ID returned")
+                }
 
                 // Update state and metadata
                 conversationState = ConversationState.CONNECTED
-                conversationMetadata["conversationId"] = conversationId ?: ""
+                conversationMetadata["conversationId"] = conversationId
                 conversationMetadata["startTime"] = connectionStartTime
 
                 Log.d(TAG, "✅ Conversation started successfully: $conversationId")
+                Log.d(TAG, "📊 Metadata: $conversationMetadata")
 
                 withContext(Dispatchers.Main) {
                     result.success(conversationId)
                 }
 
             } catch (e: Exception) {
+                Log.e(TAG, "❌ Error starting conversation: ${e.message}", e)
+                Log.e(TAG, "🔍 Error type: ${e.javaClass.simpleName}")
+                Log.e(TAG, "🔍 Stack trace: ${e.stackTraceToString()}")
+
                 conversationState = ConversationState.ERROR
                 handleError(e, result)
             }
