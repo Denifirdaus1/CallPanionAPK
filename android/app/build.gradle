@@ -70,6 +70,5 @@ dependencies {
     implementation 'com.google.firebase:firebase-messaging:23.2.1'
     implementation 'androidx.work:work-runtime-ktx:2.8.1'
     implementation 'com.google.android.play:core:1.10.3'
-    // TODO: Re-add ElevenLabs Android SDK when properly configured
-    // implementation 'io.elevenlabs:elevenlabs-android:0.2.0'
+    implementation 'io.elevenlabs:elevenlabs-android:0.2.0'
 }

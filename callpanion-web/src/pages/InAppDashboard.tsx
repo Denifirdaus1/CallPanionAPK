@@ -154,10 +154,25 @@ const InAppDashboard = () => {
 
       const householdId = households[0].id; // Use first household for now
       
-      const { data, error } = await supabase.functions.invoke('voice-start', {
+      // Create call session first
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('call_sessions')
+        .insert({
+          household_id: householdId,
+          relative_id: relativeId,
+          call_type: 'in_app_call',
+          status: 'scheduled',
+          scheduled_time: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (sessionError) throw sessionError;
+
+      const { data, error } = await supabase.functions.invoke('elevenlabs-device-call', {
         body: {
-          relativeId,
-          householdId
+          sessionId: sessionData.id,
+          action: 'start'
         }
       });
 
