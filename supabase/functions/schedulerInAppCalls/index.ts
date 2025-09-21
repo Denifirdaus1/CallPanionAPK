@@ -6,6 +6,207 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper function to process queued notifications
+async function processQueuedNotifications(supabase: any, queuedNotifications: any[]) {
+  let successfulDispatches = 0;
+  let failedDispatches = 0;
+
+  for (const notification of queuedNotifications) {
+    try {
+      console.log(`Executing queued notification for relative ${notification.relative_id}, slot ${notification.slot_type}`);
+
+      // Mark notification as being processed
+      await supabase
+        .from('scheduled_notifications')
+        .update({ status: 'processing', executed_at: new Date().toISOString() })
+        .eq('id', notification.id);
+
+      // Create call session for WebRTC
+      const { data: session, error: sessionError } = await supabase
+        .from('call_sessions')
+        .insert({
+          household_id: notification.household_id,
+          relative_id: notification.relative_id,
+          status: 'scheduled',
+          provider: 'webrtc',
+          call_type: 'in_app_call',
+          scheduled_time: notification.scheduled_for
+        })
+        .select()
+        .single();
+
+      if (sessionError) {
+        console.error('Error creating call session:', sessionError);
+        await supabase
+          .from('scheduled_notifications')
+          .update({ status: 'failed', last_error: sessionError.message })
+          .eq('id', notification.id);
+        failedDispatches++;
+        continue;
+      }
+
+      // Create call log
+      const { data: callLog, error: logError } = await supabase
+        .from('call_logs')
+        .insert({
+          user_id: notification.relative_id,
+          relative_id: notification.relative_id,
+          household_id: notification.household_id,
+          call_outcome: 'initiated',
+          provider: 'webrtc',
+          call_type: 'in_app_call',
+          session_id: session.id,
+          timestamp: notification.scheduled_for
+        })
+        .select()
+        .single();
+
+      if (logError) {
+        console.error('Error creating call log:', logError);
+      }
+
+      // Get relative info for notification
+      const { data: relative, error: relativeError } = await supabase
+        .from('relatives')
+        .select('first_name, last_name')
+        .eq('id', notification.relative_id)
+        .single();
+
+      if (relativeError || !relative) {
+        console.error('Error fetching relative info:', relativeError);
+        await supabase
+          .from('scheduled_notifications')
+          .update({ status: 'failed', last_error: 'Relative not found' })
+          .eq('id', notification.id);
+        failedDispatches++;
+        continue;
+      }
+
+      // Send notification based on platform and available tokens
+      let notificationSent = false;
+      let notifyError = null;
+
+      if (notification.platform === 'ios' && notification.device_token) {
+        // Try VoIP notification for iOS
+        console.log(`Sending APNS VoIP notification to iOS device for relative ${notification.relative_id}`);
+        const { error } = await supabase.functions.invoke('send-apns-voip-notification', {
+          body: {
+            voipToken: notification.device_token,
+            title: 'Incoming Call',
+            body: `${relative.first_name} is calling`,
+            data: {
+              type: 'incoming_call',
+              sessionId: session.id,
+              relativeName: `${relative.first_name} ${relative.last_name}`,
+              householdId: notification.household_id,
+              relativeId: notification.relative_id,
+              callType: 'in_app_call',
+              handle: 'CallPanion',
+              avatar: '',
+              duration: '30000'
+            },
+            householdId: notification.household_id,
+            relativeId: notification.relative_id,
+            callSessionId: session.id
+          }
+        });
+
+        if (!error) {
+          notificationSent = true;
+        } else {
+          notifyError = error;
+        }
+      }
+
+      // Fallback to FCM for Android or iOS fallback
+      if (!notificationSent && notification.device_token) {
+        console.log(`Sending FCM notification to ${notification.platform} device for relative ${notification.relative_id}`);
+        const { error } = await supabase.functions.invoke('send-fcm-notification', {
+          body: {
+            deviceToken: notification.device_token,
+            title: 'Time for Your Call',
+            body: `Your family is ready to talk with you, ${relative.first_name}!`,
+            data: {
+              type: 'incoming_call',
+              sessionId: session.id,
+              relativeName: `${relative.first_name} ${relative.last_name}`,
+              householdId: notification.household_id,
+              relativeId: notification.relative_id,
+              callType: 'in_app_call',
+              handle: 'CallPanion',
+              avatar: '',
+              duration: '30000'
+            },
+            householdId: notification.household_id,
+            relativeId: notification.relative_id
+          }
+        });
+
+        if (!error) {
+          notificationSent = true;
+        } else {
+          notifyError = error;
+        }
+      }
+
+      if (notificationSent) {
+        console.log(`Notification sent successfully for relative ${notification.relative_id}`);
+
+        // Mark notification as sent
+        await supabase
+          .from('scheduled_notifications')
+          .update({ status: 'sent' })
+          .eq('id', notification.id);
+
+        // Update daily call tracking
+        await supabase
+          .from('daily_call_tracking')
+          .upsert({
+            relative_id: notification.relative_id,
+            household_id: notification.household_id,
+            call_date: new Date().toISOString().split('T')[0],
+            [`${notification.slot_type}_called`]: true
+          }, {
+            onConflict: 'relative_id,household_id,call_date'
+          });
+
+        successfulDispatches++;
+      } else {
+        console.error('Failed to send notification:', notifyError);
+
+        // Mark notification as failed
+        await supabase
+          .from('scheduled_notifications')
+          .update({
+            status: 'failed',
+            last_error: notifyError?.message || 'Failed to send notification',
+            retry_count: notification.retry_count + 1
+          })
+          .eq('id', notification.id);
+
+        failedDispatches++;
+      }
+
+    } catch (error) {
+      console.error('Error processing queued notification:', error);
+
+      // Mark notification as failed
+      await supabase
+        .from('scheduled_notifications')
+        .update({
+          status: 'failed',
+          last_error: error.message,
+          retry_count: notification.retry_count + 1
+        })
+        .eq('id', notification.id);
+
+      failedDispatches++;
+    }
+  }
+
+  return { successfulDispatches, failedDispatches };
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -21,7 +222,7 @@ serve(async (req) => {
 
     console.log('Environment check passed, fetching due schedules for in-app calls...');
 
-    // Get due schedules using the existing RPC function
+    // Get due schedules using the updated RPC function with execution modes
     const { data: dueSchedules, error: scheduleError } = await supabase
       .rpc('rpc_find_due_schedules_next_min');
 
@@ -37,6 +238,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({
         success: true,
         message: 'No due schedules found for in-app calls',
+        queued: 0,
         dispatched: 0,
         failed: 0
       }), {
@@ -44,9 +246,96 @@ serve(async (req) => {
       });
     }
 
-    // Group schedules by household to check call method preference
+    // Separate schedules by execution mode
+    const schedulesToQueue = dueSchedules.filter(s => s.execution_mode === 'queue');
+    const schedulesToExecute = dueSchedules.filter(s => s.execution_mode === 'execute');
+
+    console.log(`Schedules to queue: ${schedulesToQueue.length}, to execute: ${schedulesToExecute.length}`);
+
+    let queuedCount = 0;
+    let successfulDispatches = 0;
+    let failedDispatches = 0;
+
+    // === PHASE 1: Queue upcoming schedules (5 minutes before execution) ===
+    if (schedulesToQueue.length > 0) {
+      console.log(`Processing ${schedulesToQueue.length} schedules for queuing...`);
+
+      for (const schedule of schedulesToQueue) {
+        try {
+          // Get device pairing info for platform detection
+          const { data: devicePair, error: deviceError } = await supabase
+            .from('device_pairs')
+            .select('claimed_by, device_info')
+            .eq('household_id', schedule.household_id)
+            .eq('relative_id', schedule.relative_id)
+            .not('claimed_at', 'is', null)
+            .limit(1);
+
+          let deviceToken = null;
+          let platform = 'unknown';
+
+          if (!deviceError && devicePair && devicePair.length > 0) {
+            const activePair = devicePair[0];
+            platform = activePair.device_info?.platform || 'unknown';
+            deviceToken = activePair.device_info?.fcm_token || activePair.device_info?.voip_token;
+          }
+
+          // Insert into notification queue
+          const { error: queueError } = await supabase
+            .from('scheduled_notifications')
+            .insert({
+              household_id: schedule.household_id,
+              relative_id: schedule.relative_id,
+              schedule_id: schedule.schedule_id,
+              slot_type: schedule.slot_type,
+              scheduled_for: new Date(schedule.run_at_unix * 1000).toISOString(),
+              device_token: deviceToken,
+              platform: platform,
+              status: 'queued'
+            });
+
+          if (queueError) {
+            console.error('Error queuing notification:', queueError);
+            failedDispatches++;
+          } else {
+            console.log(`Queued notification for relative ${schedule.relative_id}, slot ${schedule.slot_type}, scheduled for ${new Date(schedule.run_at_unix * 1000).toISOString()}`);
+            queuedCount++;
+          }
+        } catch (error) {
+          console.error('Error processing queue item:', error);
+          failedDispatches++;
+        }
+      }
+    }
+
+    // === PHASE 2: Execute notifications from queue (at scheduled time) ===
+    if (schedulesToExecute.length > 0) {
+      console.log(`Processing ${schedulesToExecute.length} schedules for execution...`);
+
+      // Get queued notifications for execution
+      const scheduleIds = schedulesToExecute.map(s => s.schedule_id);
+      const { data: queuedNotifications, error: queueFetchError } = await supabase
+        .from('scheduled_notifications')
+        .select('*')
+        .in('schedule_id', scheduleIds)
+        .eq('status', 'queued')
+        .lte('scheduled_for', new Date().toISOString());
+
+      if (queueFetchError) {
+        console.error('Error fetching queued notifications:', queueFetchError);
+        throw queueFetchError;
+      }
+
+      console.log(`Found ${queuedNotifications?.length || 0} queued notifications to execute`);
+
+      if (queuedNotifications && queuedNotifications.length > 0) {
+        await processQueuedNotifications(supabase, queuedNotifications);
+      }
+    }
+
+    // Group remaining schedules by household for preference checking (legacy support)
     const householdSchedules = new Map();
-    for (const schedule of dueSchedules) {
+    for (const schedule of dueSchedules.filter(s => s.execution_mode === 'none')) {
       if (!householdSchedules.has(schedule.household_id)) {
         householdSchedules.set(schedule.household_id, []);
       }
@@ -185,11 +474,6 @@ serve(async (req) => {
             callLog = newLog;
           }
 
-          if (logError) {
-            console.error('Error creating call log:', logError);
-            failedDispatches++;
-            continue;
-          }
 
           // Get device pairing for this relative to determine platform and token
           console.log(`Searching for device pairing: household_id=${schedule.household_id}, relative_id=${schedule.relative_id}`);
@@ -461,11 +745,10 @@ serve(async (req) => {
         last_run: new Date().toISOString(),
         status: 'success',
         details: {
-          scheduled_calls: successfulDispatches,
-          failed_calls: failedDispatches,
+          queued_notifications: queuedCount,
+          executed_notifications: successfulDispatches,
+          failed_dispatches: failedDispatches,
           total_due_schedules: dueSchedules.length,
-          in_app_schedules: inAppCallSchedules.length,
-          missing_tokens: failedDispatches,
           timestamp: new Date().toISOString()
         }
       }, {
@@ -473,16 +756,17 @@ serve(async (req) => {
       });
 
     console.log('=== schedulerInAppCalls completed ===');
+    console.log(`Queued notifications: ${queuedCount}`);
     console.log(`Successful dispatches: ${successfulDispatches}`);
     console.log(`Failed dispatches: ${failedDispatches}`);
 
     return new Response(JSON.stringify({
       success: true,
       message: 'In-app call scheduling completed',
+      queued: queuedCount,
       dispatched: successfulDispatches,
       failed: failedDispatches,
-      total_due_schedules: dueSchedules.length,
-      in_app_schedules: inAppCallSchedules.length
+      total_due_schedules: dueSchedules.length
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

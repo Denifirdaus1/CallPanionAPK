@@ -895,6 +895,23 @@ CONSTRAINT relatives_pkey PRIMARY KEY (id),
 CONSTRAINT relatives_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id),
 CONSTRAINT relatives_elderly_user_id_fkey FOREIGN KEY (elderly_user_id) REFERENCES auth.users(id)
 );
+CREATE TABLE public.scheduled_notifications (
+id uuid NOT NULL DEFAULT gen_random_uuid(),
+household_id uuid NOT NULL,
+relative_id uuid NOT NULL,
+schedule_id uuid NOT NULL,
+slot_type text NOT NULL CHECK (slot_type = ANY (ARRAY['morning'::text, 'afternoon'::text, 'evening'::text])),
+scheduled_for timestamp with time zone NOT NULL,
+status text NOT NULL DEFAULT 'queued'::text CHECK (status = ANY (ARRAY['queued'::text, 'sent'::text, 'failed'::text, 'expired'::text])),
+device_token text,
+platform text,
+retry_count integer DEFAULT 0,
+last_error text,
+created_at timestamp with time zone NOT NULL DEFAULT now(),
+executed_at timestamp with time zone,
+updated_at timestamp with time zone NOT NULL DEFAULT now(),
+CONSTRAINT scheduled_notifications_pkey PRIMARY KEY (id)
+);
 CREATE TABLE public.schedules (
 id uuid NOT NULL DEFAULT gen_random_uuid(),
 household_id uuid NOT NULL,
