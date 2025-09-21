@@ -159,16 +159,35 @@ async function processQueuedNotifications(supabase: any, queuedNotifications: an
           .eq('id', notification.id);
 
         // Update daily call tracking
-        await supabase
+        const callDate = new Date().toISOString().split('T')[0];
+        const { data: existingTracking } = await supabase
           .from('daily_call_tracking')
-          .upsert({
-            relative_id: notification.relative_id,
-            household_id: notification.household_id,
-            call_date: new Date().toISOString().split('T')[0],
-            [`${notification.slot_type}_called`]: true
-          }, {
-            onConflict: 'relative_id,household_id,call_date'
-          });
+          .select('*')
+          .eq('relative_id', notification.relative_id)
+          .eq('household_id', notification.household_id)
+          .eq('call_date', callDate)
+          .maybeSingle();
+
+        if (existingTracking) {
+          // Update existing record
+          await supabase
+            .from('daily_call_tracking')
+            .update({
+              [`${notification.slot_type}_called`]: true,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingTracking.id);
+        } else {
+          // Insert new record
+          await supabase
+            .from('daily_call_tracking')
+            .insert({
+              relative_id: notification.relative_id,
+              household_id: notification.household_id,
+              call_date: callDate,
+              [`${notification.slot_type}_called`]: true
+            });
+        }
 
         successfulDispatches++;
       } else {
@@ -388,8 +407,9 @@ serve(async (req) => {
 
     console.log(`In-app call schedules to process: ${inAppCallSchedules.length}`);
 
-    let successfulDispatches = 0;
-    let failedDispatches = 0;
+    // Reset counters for processing in-app calls
+    successfulDispatches = 0;
+    failedDispatches = 0;
 
     // Process in-app calls (WebRTC + Push Notifications)
     if (inAppCallSchedules.length > 0) {
@@ -716,16 +736,35 @@ serve(async (req) => {
           }
 
           // Update daily tracking
-          await supabase
+          const callDate = new Date().toISOString().split('T')[0];
+          const { data: existingTracking } = await supabase
             .from('daily_call_tracking')
-            .upsert({
-              relative_id: schedule.relative_id,
-              household_id: schedule.household_id,
-              call_date: new Date().toISOString().split('T')[0],
-              [`${schedule.slot_type}_called`]: true
-            }, {
-              onConflict: 'relative_id,household_id,call_date'
-            });
+            .select('*')
+            .eq('relative_id', schedule.relative_id)
+            .eq('household_id', schedule.household_id)
+            .eq('call_date', callDate)
+            .maybeSingle();
+
+          if (existingTracking) {
+            // Update existing record
+            await supabase
+              .from('daily_call_tracking')
+              .update({
+                [`${schedule.slot_type}_called`]: true,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', existingTracking.id);
+          } else {
+            // Insert new record
+            await supabase
+              .from('daily_call_tracking')
+              .insert({
+                relative_id: schedule.relative_id,
+                household_id: schedule.household_id,
+                call_date: callDate,
+                [`${schedule.slot_type}_called`]: true
+              });
+          }
 
           successfulDispatches++;
           console.log(`Successfully scheduled in-app call for relative ${schedule.relative_id}`);
@@ -738,22 +777,35 @@ serve(async (req) => {
     }
 
     // Update heartbeat
-    await supabase
+    const { data: existingHeartbeat } = await supabase
       .from('cron_heartbeat')
-      .upsert({
-        job_name: 'callpanion-in-app-calls',
-        last_run: new Date().toISOString(),
-        status: 'success',
-        details: {
-          queued_notifications: queuedCount,
-          executed_notifications: successfulDispatches,
-          failed_dispatches: failedDispatches,
-          total_due_schedules: dueSchedules.length,
-          timestamp: new Date().toISOString()
-        }
-      }, {
-        onConflict: 'job_name'
-      });
+      .select('*')
+      .eq('job_name', 'callpanion-in-app-calls')
+      .maybeSingle();
+
+    const heartbeatData = {
+      job_name: 'callpanion-in-app-calls',
+      last_run: new Date().toISOString(),
+      status: 'success',
+      details: {
+        queued_notifications: queuedCount,
+        executed_notifications: successfulDispatches,
+        failed_dispatches: failedDispatches,
+        total_due_schedules: dueSchedules.length,
+        timestamp: new Date().toISOString()
+      }
+    };
+
+    if (existingHeartbeat) {
+      await supabase
+        .from('cron_heartbeat')
+        .update(heartbeatData)
+        .eq('id', existingHeartbeat.id);
+    } else {
+      await supabase
+        .from('cron_heartbeat')
+        .insert(heartbeatData);
+    }
 
     console.log('=== schedulerInAppCalls completed ===');
     console.log(`Queued notifications: ${queuedCount}`);
@@ -776,19 +828,32 @@ serve(async (req) => {
 
     // Log error to heartbeat
     const supabase = serviceClient();
-    await supabase
+    const { data: existingHeartbeat } = await supabase
       .from('cron_heartbeat')
-      .upsert({
-        job_name: 'callpanion-in-app-calls',
-        last_run: new Date().toISOString(),
-        status: 'error',
-        details: {
-          error: error.message,
-          stack: error.stack
-        }
-      }, {
-        onConflict: 'job_name'
-      });
+      .select('*')
+      .eq('job_name', 'callpanion-in-app-calls')
+      .maybeSingle();
+
+    const errorHeartbeatData = {
+      job_name: 'callpanion-in-app-calls',
+      last_run: new Date().toISOString(),
+      status: 'error',
+      details: {
+        error: error.message,
+        stack: error.stack
+      }
+    };
+
+    if (existingHeartbeat) {
+      await supabase
+        .from('cron_heartbeat')
+        .update(errorHeartbeatData)
+        .eq('id', existingHeartbeat.id);
+    } else {
+      await supabase
+        .from('cron_heartbeat')
+        .insert(errorHeartbeatData);
+    }
 
     return new Response(JSON.stringify({
       error: 'in_app_call_scheduling_failed',
