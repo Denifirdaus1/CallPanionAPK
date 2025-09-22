@@ -200,159 +200,6 @@ async function queueNotificationWithDeviceInfo(
   }
 }
 
-// Temporary direct execution function (fallback)
-async function executeScheduleDirectly(
-  supabase: any,
-  schedule: ScheduleToQueue
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    console.log(`[Execute] 🚀 Direct execution for relative ${schedule.relative_id}`);
-
-    // Get device pairing info
-    const { data: devicePair, error: deviceError } = await supabase
-      .from('device_pairs')
-      .select('claimed_by, device_info, created_at, claimed_at')
-      .eq('household_id', schedule.household_id)
-      .eq('relative_id', schedule.relative_id)
-      .not('claimed_at', 'is', null)
-      .order('claimed_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    let platform = 'unknown';
-    let deviceToken = null;
-    let voipToken = null;
-
-    if (!deviceError && devicePair) {
-      platform = devicePair.device_info?.platform || 'unknown';
-      deviceToken = devicePair.device_info?.fcm_token;
-      voipToken = devicePair.device_info?.voip_token;
-
-      // Fallback to push_notification_tokens if needed
-      if (!deviceToken && !voipToken && devicePair.claimed_by) {
-        const { data: fallbackTokens } = await supabase
-          .from('push_notification_tokens')
-          .select('token, platform, voip_token')
-          .eq('user_id', devicePair.claimed_by)
-          .eq('is_active', true)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (fallbackTokens) {
-          deviceToken = fallbackTokens.token;
-          voipToken = fallbackTokens.voip_token;
-          platform = fallbackTokens.platform || platform;
-        }
-      }
-    }
-
-    if (!deviceToken && !voipToken) {
-      console.log(`[Execute] ⚠️ No notification tokens available for relative ${schedule.relative_id}`);
-      return { success: true }; // Skip but don't fail
-    }
-
-    // Create call session
-    const { data: session, error: sessionError } = await supabase
-      .from('call_sessions')
-      .insert({
-        household_id: schedule.household_id,
-        relative_id: schedule.relative_id,
-        status: 'scheduled',
-        provider: 'webrtc',
-        call_type: 'in_app_call',
-        scheduled_time: schedule.scheduled_time,
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (sessionError) {
-      throw new Error(`Session creation failed: ${sessionError.message}`);
-    }
-
-    // Get relative info
-    const { data: relative, error: relativeError } = await supabase
-      .from('relatives')
-      .select('first_name, last_name')
-      .eq('id', schedule.relative_id)
-      .single();
-
-    if (relativeError || !relative) {
-      throw new Error(`Failed to fetch relative info: ${relativeError?.message}`);
-    }
-
-    const relativeName = `${relative.first_name} ${relative.last_name}`;
-
-    // Prepare notification data
-    const isVoIP = platform === 'ios' && voipToken;
-    const notificationData = {
-      voipToken: voipToken,
-      deviceToken: deviceToken,
-      title: isVoIP ? 'Incoming Call' : 'Time for Your Call',
-      body: isVoIP
-        ? `${relative.first_name} is calling`
-        : `Your family is ready to talk with you, ${relative.first_name}!`,
-      data: {
-        type: 'incoming_call',
-        sessionId: session.id,
-        relativeName: relativeName,
-        householdId: schedule.household_id,
-        relativeId: schedule.relative_id,
-        callType: 'in_app_call',
-        handle: 'CallPanion',
-        avatar: '',
-        duration: '30000'
-      },
-      householdId: schedule.household_id,
-      relativeId: schedule.relative_id,
-      callSessionId: session.id
-    };
-
-    // Send notification
-    let result;
-    if (isVoIP) {
-      console.log(`[Execute] 📱 Sending APNS VoIP notification to iOS device`);
-      result = await supabase.functions.invoke('send-apns-voip-notification', {
-        body: notificationData
-      });
-    } else if (deviceToken) {
-      console.log(`[Execute] 📱 Sending FCM notification to ${platform} device`);
-      result = await supabase.functions.invoke('send-fcm-notification', {
-        body: notificationData
-      });
-    } else {
-      throw new Error('No suitable notification method available');
-    }
-
-    if (result.error) {
-      throw new Error(`Notification failed: ${result.error.message || 'Unknown error'}`);
-    }
-
-    console.log(`[Execute] ✅ Notification sent successfully to relative ${schedule.relative_id}`);
-
-    // Create call log
-    await supabase
-      .from('call_logs')
-      .insert({
-        user_id: schedule.relative_id,
-        relative_id: schedule.relative_id,
-        household_id: schedule.household_id,
-        call_outcome: 'initiated',
-        provider: 'webrtc',
-        call_type: 'in_app_call',
-        session_id: session.id,
-        timestamp: schedule.scheduled_time
-      });
-
-    return { success: true };
-
-  } catch (error) {
-    console.error(`[Execute] ❌ Failed to execute schedule:`, error.message);
-    return { success: false, error: error.message };
-  }
-}
-
 // Enhanced notification sending with retry
 async function executeQueuedNotification(
   supabase: any,
@@ -613,35 +460,23 @@ serve(async (req) => {
     // ========================================
     console.log('\n[Phase 1] 🔍 Checking for schedules to queue (5 min before execution)...');
 
-    // TEMPORARY: Use existing RPC while we deploy the new one
-    const { data: dueSchedules, error: queueError } = await supabase
-      .rpc('rpc_find_due_schedules_next_min');
+    const { data: schedulesToQueue, error: queueError } = await supabase
+      .rpc('rpc_find_schedules_to_queue');
 
     if (queueError) {
       console.error('[Phase 1] Error fetching schedules to queue:', queueError);
       throw queueError;
     }
 
-    // TEMPORARY: Convert old format to new format for compatibility
-    const schedulesToQueue = dueSchedules?.map(s => ({
-      schedule_id: s.schedule_id,
-      household_id: s.household_id,
-      relative_id: s.relative_id,
-      slot_type: 'immediate', // Temporary - we'll improve this
-      scheduled_time: new Date(s.run_at_unix * 1000).toISOString(),
-      timezone: 'UTC'
-    })) || [];
-
-    console.log(`[Phase 1] Found ${schedulesToQueue?.length || 0} schedules to process (fallback mode)`);
+    console.log(`[Phase 1] Found ${schedulesToQueue?.length || 0} schedules to queue`);
 
     if (schedulesToQueue && schedulesToQueue.length > 0) {
       for (const schedule of schedulesToQueue) {
-        // For now, just execute immediately instead of queueing
-        const result = await executeScheduleDirectly(supabase, schedule);
+        const result = await queueNotificationWithDeviceInfo(supabase, schedule);
         if (result.success) {
-          executedCount++;
+          queuedCount++;
         } else {
-          errors.push(`Execute failed for ${schedule.relative_id}: ${result.error}`);
+          errors.push(`Queue failed for ${schedule.relative_id}: ${result.error}`);
         }
       }
     }
@@ -649,10 +484,8 @@ serve(async (req) => {
     // ========================================
     // PHASE 2: EXECUTION (at scheduled time)
     // ========================================
-    console.log('\n[Phase 2] ⚡ Skipping queue execution phase (fallback mode)...');
+    console.log('\n[Phase 2] ⚡ Checking for ready notifications to execute...');
 
-    // TODO: Uncomment when notification_queue table is available
-    /*
     const { data: readyNotifications, error: readyError } = await supabase
       .rpc('rpc_find_ready_notifications');
 
@@ -673,15 +506,12 @@ serve(async (req) => {
         }
       }
     }
-    */
 
     // ========================================
     // PHASE 3: CLEANUP
     // ========================================
-    console.log('\n[Phase 3] 🧹 Skipping cleanup phase (fallback mode)...');
+    console.log('\n[Phase 3] 🧹 Cleaning up expired notifications...');
 
-    // TODO: Uncomment when notification_queue table is available
-    /*
     const { data: cleanupResult } = await supabase
       .rpc('cleanup_notification_queue');
 
@@ -689,8 +519,6 @@ serve(async (req) => {
     if (cleanedCount > 0) {
       console.log(`[Phase 3] Cleaned up ${cleanedCount} expired notifications`);
     }
-    */
-    let cleanedCount = 0;
 
     // ========================================
     // HEARTBEAT & SUMMARY

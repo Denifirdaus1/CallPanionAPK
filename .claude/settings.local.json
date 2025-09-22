@@ -9,7 +9,11 @@
       "Bash(git branch:*)",
       "Bash(git push:*)",
       "Bash(git tag:*)",
-      "Bash(deno check:*)"
+      "Bash(deno check:*)",
+      "Bash(supabase status:*)",
+      "Bash(npm install:*)",
+      "Bash(curl:*)",
+      "Bash(npx supabase:*)"
     ],
     "deny": [],
     "ask": []
