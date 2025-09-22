@@ -195,6 +195,12 @@ class CallKitService {
       final callUuid = event.body['id'] as String?;
       final extra = _convertMapToStringDynamic(event.body['extra']);
 
+      if (kDebugMode) {
+        print('📞 Call accept event received:');
+        print('  - CallUuid: $callUuid');
+        print('  - Extra data: $extra');
+      }
+
       if (callUuid != null && extra != null) {
         final sessionId = extra['sessionId'] as String?;
         final callType = extra['callType'] as String?;
@@ -202,7 +208,20 @@ class CallKitService {
         final relativeId = extra['relativeId'] as String?;
         final relativeName = extra['relativeName'] as String? ?? 'Your Family';
 
+        if (kDebugMode) {
+          print('📞 Extracted call data:');
+          print('  - SessionId: $sessionId');
+          print('  - CallType: $callType');
+          print('  - HouseholdId: $householdId');
+          print('  - RelativeId: $relativeId');
+          print('  - RelativeName: $relativeName');
+        }
+
         if (sessionId != null) {
+          if (kDebugMode) {
+            print('📞 Updating call status to active...');
+          }
+
           // Update call status to active via API
           await ApiService.instance.updateCallStatus(
             sessionId: sessionId,
@@ -226,9 +245,12 @@ class CallKitService {
 
             // Store the call data for when app comes to foreground
             await _storePendingCallData(callData);
-            
+
             // Also navigate immediately if we have an onCallAccepted callback
             if (onCallAccepted != null && callType != null) {
+              if (kDebugMode) {
+                print('📞 Triggering navigation callback with delay...');
+              }
               // Small delay to ensure CallKit UI transition is complete
               Future.delayed(const Duration(milliseconds: 100), () {
                 onCallAccepted!(sessionId, callType);
@@ -236,15 +258,18 @@ class CallKitService {
             }
           } else {
             // Create call data and navigate immediately
-            final callData = CallData(
+            CallData(
               sessionId: sessionId,
               relativeName: relativeName,
               callType: callType ?? AppConstants.callTypeInApp,
               householdId: householdId ?? '',
               relativeId: relativeId ?? '',
             );
-            
+
             if (onCallAccepted != null && callType != null) {
+              if (kDebugMode) {
+                print('📞 Triggering navigation callback (no current call)...');
+              }
               // Small delay to ensure CallKit UI transition is complete
               Future.delayed(const Duration(milliseconds: 100), () {
                 onCallAccepted!(sessionId, callType);
@@ -254,6 +279,9 @@ class CallKitService {
 
           // Start ElevenLabs WebRTC call for in-app calls
           if (callType == AppConstants.callTypeInApp) {
+            if (kDebugMode) {
+              print('🎙️ Starting ElevenLabs WebRTC call...');
+            }
             // Start ElevenLabs WebRTC call with a slight delay to allow navigation
             Future.delayed(const Duration(milliseconds: 200), () async {
               final elevenLabsSuccess = await ElevenLabsCallService.instance.startElevenLabsCall(sessionId);
@@ -264,13 +292,22 @@ class CallKitService {
           }
 
           if (kDebugMode) {
-            print('✅ Call accepted: $sessionId');
+            print('✅ Call accepted successfully: $sessionId');
           }
+        } else {
+          if (kDebugMode) {
+            print('❌ SessionId is null in call accept');
+          }
+        }
+      } else {
+        if (kDebugMode) {
+          print('❌ Missing callUuid or extra data in call accept');
         }
       }
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error handling call accept: $e');
+        print('❌ Event body: ${event.body}');
       }
     }
   }

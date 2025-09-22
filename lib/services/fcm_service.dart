@@ -12,6 +12,8 @@ import 'api_service.dart';
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (kDebugMode) {
     print('📱 Background FCM message received: ${message.messageId}');
+    print('📱 Notification title: ${message.notification?.title}');
+    print('📱 Notification body: ${message.notification?.body}');
     print('📱 Data: ${message.data}');
   }
 
@@ -23,6 +25,15 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> _handleBackgroundIncomingCall(Map<String, dynamic> data) async {
   try {
+    if (kDebugMode) {
+      print('🔔 Processing background incoming call:');
+      print('  - SessionId: ${data['sessionId']}');
+      print('  - RelativeName: ${data['relativeName']}');
+      print('  - CallType: ${data['callType']}');
+      print('  - HouseholdId: ${data['householdId']}');
+      print('  - RelativeId: ${data['relativeId']}');
+    }
+
     final callData = CallData(
       sessionId: data['sessionId'] ?? '',
       relativeName: data['relativeName'] ?? 'Your Family',
@@ -34,11 +45,20 @@ Future<void> _handleBackgroundIncomingCall(Map<String, dynamic> data) async {
       duration: data['duration'] ?? '30000',
     );
 
+    if (kDebugMode) {
+      print('📞 Background call data created: ${callData.toJsonString()}');
+    }
+
     // Show CallKit incoming call interface
     await CallKitService.instance.showIncomingCall(callData);
+
+    if (kDebugMode) {
+      print('✅ Background incoming call processed successfully');
+    }
   } catch (e) {
     if (kDebugMode) {
       print('❌ Error handling background incoming call: $e');
+      print('❌ Data received: $data');
     }
   }
 }
@@ -175,7 +195,11 @@ class FCMService {
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       if (kDebugMode) {
         print('📱 Foreground FCM message received: ${message.messageId}');
+        print('📱 Notification title: ${message.notification?.title}');
+        print('📱 Notification body: ${message.notification?.body}');
         print('📱 Data: ${message.data}');
+        print('📱 From: ${message.from}');
+        print('📱 Sent time: ${message.sentTime}');
       }
 
       _handleForegroundMessage(message);
@@ -227,10 +251,23 @@ class FCMService {
       final sessionId = data['sessionId'] ?? '';
       final householdId = data['householdId'] ?? '';
       final relativeId = data['relativeId'] ?? '';
+      final messageType = data['type'] ?? '';
+
+      if (kDebugMode) {
+        print('🔔 Processing incoming call message:');
+        print('  - Type: $messageType');
+        print('  - SessionId: $sessionId');
+        print('  - HouseholdId: $householdId');
+        print('  - RelativeId: $relativeId');
+        print('  - RelativeName: ${data['relativeName'] ?? 'Unknown'}');
+      }
 
       if (sessionId.isEmpty || householdId.isEmpty || relativeId.isEmpty) {
         if (kDebugMode) {
           print('❌ Invalid incoming call data: missing required fields');
+          print('  - SessionId empty: ${sessionId.isEmpty}');
+          print('  - HouseholdId empty: ${householdId.isEmpty}');
+          print('  - RelativeId empty: ${relativeId.isEmpty}');
         }
         return;
       }
@@ -246,9 +283,17 @@ class FCMService {
         duration: data['duration'] ?? '30000',
       );
 
+      if (kDebugMode) {
+        print('📞 Created call data: ${callData.toJsonString()}');
+      }
+
       // Verify this call is for our paired device
       _verifyCallOwnership(callData).then((isValid) {
         if (isValid) {
+          if (kDebugMode) {
+            print('✅ Call ownership verified, showing CallKit interface');
+          }
+
           // Show CallKit interface
           CallKitService.instance.showIncomingCall(callData);
 
@@ -258,17 +303,22 @@ class FCMService {
           }
 
           if (kDebugMode) {
-            print('📞 Incoming call processed: ${callData.sessionId}');
+            print('📞 Incoming call processed successfully: ${callData.sessionId}');
           }
         } else {
           if (kDebugMode) {
             print('❌ Call ownership verification failed for session: $sessionId');
           }
         }
+      }).catchError((error) {
+        if (kDebugMode) {
+          print('❌ Error during call ownership verification: $error');
+        }
       });
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error handling incoming call message: $e');
+        print('❌ Message data: $data');
       }
     }
   }

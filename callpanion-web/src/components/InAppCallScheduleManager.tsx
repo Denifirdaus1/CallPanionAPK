@@ -234,4 +234,91 @@ export const InAppCallScheduleManager = () => {
       </CardContent>
     </Card>
   );
-};
+};sebelumnya kan ada masalah dimana shejule notifikasi tidak masuk ke prangkat , dan Lovable.dev melakukan update pada web dan ini laporannya :
+  # Laporan Fix Scheduler In-App Calls & Flutter App Updates
+
+  ## 📋 Executive Summary
+  Telah dilakukan perbaikan kritis pada sistem scheduler in-app calls yang mengalami error database constraint. Semua error ON CONFLICT sudah diperbaiki dan sistem scheduler sekarang berfungsi dengan normal.
+
+  ## 🔧 Perubahan Yang Dilakukan
+
+  ### 1. Fix Error Database Constraint (CRITICAL)
+
+  **Masalah:** Error "ON CONFLICT specification" karena constraint yang hilang di database
+  **Solusi:** Mengganti semua operasi `upsert` dengan manual check-and-insert/update logic
+
+  #### File: `supabase/functions/schedulerInAppCalls/index.ts`
+
+  **Perubahan 1: Daily Call Tracking Update (Line 161-171)**
+  ```typescript
+  // SEBELUM (ERROR):
+  await supabase
+    .from('daily_call_tracking')
+    .upsert({...}, { onConflict: 'relative_id,household_id,call_date' });
+
+  // SESUDAH (FIXED):
+  const { data: existingTracking } = await supabase
+    .from('daily_call_tracking')
+    .select('*')
+    .eq('relative_id', notification.relative_id)
+    .eq('household_id', notification.household_id)
+    .eq('call_date', callDate)
+    .maybeSingle();
+
+  if (existingTracking) {
+    // Update existing record
+    await supabase.from('daily_call_tracking').update({...}).eq('id', existingTracking.id);
+  } else {
+    // Insert new record
+    await supabase.from('daily_call_tracking').insert({...});
+  }
+  ```
+
+  **Perubahan 2: Heartbeat Update (Line 741-755)**
+  ```typescript
+  // SEBELUM (ERROR):
+  await supabase
+    .from('cron_heartbeat')
+    .upsert({...}, { onConflict: 'job_name' });
+
+  // SESUDAH (FIXED):
+  const { data: existingHeartbeat } = await supabase
+    .from('cron_heartbeat')
+    .select('*')
+    .eq('job_name', 'callpanion-in-app-calls')
+    .maybeSingle();
+
+  if (existingHeartbeat) {
+    await supabase.from('cron_heartbeat').update(heartbeatData).eq('id', existingHeartbeat.id);
+  } else {
+    await supabase.from('cron_heartbeat').insert(heartbeatData);
+  }
+  ```
+
+  **Perubahan 3: Error Handling Heartbeat (Line 778-791)**
+  - Sama seperti perubahan 2, mengganti upsert dengan manual check-and-insert/update
+
+  ### 2. Verifikasi Schedule Database
+
+  **Status:** ✅ BERHASIL
+  - Schedule evening_time 22:00:00 sudah ada di database
+  - Schedule aktif dengan timezone Asia/Jakarta
+  - Household menggunakan call_method_preference: 'in_app_call'
+
+  ### 3. Verifikasi Komponen Frontend
+
+  **Status:** ✅ BERFUNGSI NORMAL
+  - `InAppDashboard.tsx` - Dashboard utama berfungsi
+  - `InAppCallScheduleSettings.tsx` - Settings schedule berfungsi
+  - `InAppCallScheduleManager.tsx` - Manager calls berfungsi
+
+  tolong dong kamu update apa yang harus di update di flutter apk nya agar fungsi shejule in app notificatiosnya berhasil kalo edge funcions dan db nya udah aku update seusai sama yang Lovable update , jadi kamu cek dan pastikan bisa berfungsi dengan baik dan notifikasi bisa masuk ya.
+
+  C:\EldernAPK\callpanion_elderly\supabase\functions\schedulerInAppCalls\index.ts
+  C:\EldernAPK\callpanion_elderly\callpanion-46b76-firebase-adminsdk-fbsvc-1aa602e050.json
+  C:\EldernAPK\callpanion_elderly\ShemaDBpublic.MD
+  C:\EldernAPK\callpanion_elderly\callpanion-web\src\components\InAppCallDashboard.tsx
+  C:\EldernAPK\callpanion_elderly\callpanion-web\src\components\InAppCallScheduleSettings.tsx
+  C:\EldernAPK\callpanion_elderly\callpanion-web\src\components\InAppCallScheduleManager.tsx
+
+  dan aku juga mau pastikan agar update ini berfungsi untuk FCM notfikasi android dan VOIP untuk Ios , kamu update dan laporkan hasilnya ke saya ya.
