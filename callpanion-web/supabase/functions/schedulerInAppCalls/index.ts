@@ -613,35 +613,23 @@ serve(async (req) => {
     // ========================================
     console.log('\n[Phase 1] 🔍 Checking for schedules to queue (5 min before execution)...');
 
-    // TEMPORARY: Use existing RPC while we deploy the new one
-    const { data: dueSchedules, error: queueError } = await supabase
-      .rpc('rpc_find_due_schedules_next_min');
+    const { data: schedulesToQueue, error: queueError } = await supabase
+      .rpc('rpc_find_schedules_to_queue');
 
     if (queueError) {
       console.error('[Phase 1] Error fetching schedules to queue:', queueError);
       throw queueError;
     }
 
-    // TEMPORARY: Convert old format to new format for compatibility
-    const schedulesToQueue = dueSchedules?.map(s => ({
-      schedule_id: s.schedule_id,
-      household_id: s.household_id,
-      relative_id: s.relative_id,
-      slot_type: 'immediate', // Temporary - we'll improve this
-      scheduled_time: new Date(s.run_at_unix * 1000).toISOString(),
-      timezone: 'UTC'
-    })) || [];
-
-    console.log(`[Phase 1] Found ${schedulesToQueue?.length || 0} schedules to process (fallback mode)`);
+    console.log(`[Phase 1] Found ${schedulesToQueue?.length || 0} schedules to queue`);
 
     if (schedulesToQueue && schedulesToQueue.length > 0) {
       for (const schedule of schedulesToQueue) {
-        // For now, just execute immediately instead of queueing
-        const result = await executeScheduleDirectly(supabase, schedule);
+        const result = await queueNotificationWithDeviceInfo(supabase, schedule);
         if (result.success) {
-          executedCount++;
+          queuedCount++;
         } else {
-          errors.push(`Execute failed for ${schedule.relative_id}: ${result.error}`);
+          errors.push(`Queue failed for ${schedule.relative_id}: ${result.error}`);
         }
       }
     }
@@ -649,10 +637,8 @@ serve(async (req) => {
     // ========================================
     // PHASE 2: EXECUTION (at scheduled time)
     // ========================================
-    console.log('\n[Phase 2] ⚡ Skipping queue execution phase (fallback mode)...');
+    console.log('\n[Phase 2] ⚡ Checking for ready notifications to execute...');
 
-    // TODO: Uncomment when notification_queue table is available
-    /*
     const { data: readyNotifications, error: readyError } = await supabase
       .rpc('rpc_find_ready_notifications');
 
@@ -673,15 +659,12 @@ serve(async (req) => {
         }
       }
     }
-    */
 
     // ========================================
     // PHASE 3: CLEANUP
     // ========================================
-    console.log('\n[Phase 3] 🧹 Skipping cleanup phase (fallback mode)...');
+    console.log('\n[Phase 3] 🧹 Cleaning up expired notifications...');
 
-    // TODO: Uncomment when notification_queue table is available
-    /*
     const { data: cleanupResult } = await supabase
       .rpc('cleanup_notification_queue');
 
@@ -689,8 +672,6 @@ serve(async (req) => {
     if (cleanedCount > 0) {
       console.log(`[Phase 3] Cleaned up ${cleanedCount} expired notifications`);
     }
-    */
-    let cleanedCount = 0;
 
     // ========================================
     // HEARTBEAT & SUMMARY

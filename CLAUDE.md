@@ -527,10 +527,140 @@ curl -f https://your-domain.com/elderly/call  # WebView accessible
 curl -f https://[project].supabase.co/functions/v1/register-fcm-token # API up
 ```
 
+## Enhanced In-App Call Notification System (v3.0.0) 🔔
+
+**Deployed**: September 22, 2025
+**Status**: 🟢 Fully Operational
+
+### Overview
+Advanced 5-minute queueing notification system with enhanced device detection, retry mechanisms, and real-time monitoring for in-app calls.
+
+### Key Features
+- **5-Minute Pre-queueing**: Notifications queued 5 minutes before execution
+- **Enhanced Device Detection**: Multi-source token lookup with fallbacks
+- **Retry Mechanism**: Automatic retry up to 3x with exponential backoff
+- **Real-time Broadcasting**: Dashboard updates for family members
+- **Comprehensive Monitoring**: Detailed logging and heartbeat tracking
+
+### Database Schema (NEW)
+```sql
+-- Notification queue table for 5-min queueing system
+notification_queue (
+  id, household_id, relative_id, schedule_id,
+  scheduled_time, queue_time, status,
+  slot_type, notification_type, retry_count,
+  platform, device_token, voip_token,
+  last_error, error_details, timestamps
+)
+
+-- New RPC Functions
+rpc_find_schedules_to_queue()     -- Find schedules to queue 5 min before
+rpc_find_ready_notifications()    -- Find notifications ready for execution
+cleanup_notification_queue()     -- Clean expired notifications
+```
+
+### Enhanced Scheduler Architecture
+```typescript
+// 3-Phase System (runs every minute via cron)
+Phase 1: QUEUEING (5 minutes before execution)
+- Detect schedules due in 5 minutes
+- Cache device info (platform, FCM/VoIP tokens)
+- Queue notifications with retry metadata
+
+Phase 2: EXECUTION (at scheduled time)
+- Find ready notifications (±30 seconds window)
+- Create call sessions
+- Send FCM/VoIP notifications
+- Update status and broadcast to dashboard
+
+Phase 3: CLEANUP
+- Mark expired notifications
+- Remove old completed/failed notifications
+```
+
+### System Behavior
+```
+Example for schedule at 20:45:
+
+20:40:00 → [Phase 1] Queue notification with device info
+20:40:01 → Status: 'queued' in notification_queue table
+20:40:02 → Device tokens cached from device_pairs + fallbacks
+
+20:45:00 → [Phase 2] Detect ready notification
+20:45:01 → Status: 'processing', create call session
+20:45:02 → Send FCM (Android) or VoIP (iOS) notification
+20:45:03 → Status: 'sent', create call log
+20:45:04 → Broadcast to dashboard, notify family
+```
+
+### Enhanced Edge Function
+**File**: `callpanion-web/supabase/functions/schedulerInAppCalls/index.ts`
+- **Completely rewritten** for 3-phase system
+- **Backup created**: `index_backup.ts`
+- **Cron Schedule**: Every minute (`* * * * *`) for precision
+
+### Device Detection Improvements
+```typescript
+// Multi-source token detection with fallbacks
+1. device_pairs.device_info (primary)
+2. push_notification_tokens (fallback)
+3. household_member tokens (alternative)
+
+// Platform-specific handling
+iOS: VoIP notifications preferred, FCM fallback
+Android: FCM notifications
+```
+
+### Monitoring & Debugging
+```sql
+-- Check queue status
+SELECT status, COUNT(*) FROM notification_queue GROUP BY status;
+
+-- Monitor recent activity
+SELECT * FROM notification_queue ORDER BY created_at DESC LIMIT 10;
+
+-- Check system health
+SELECT * FROM cron_heartbeat WHERE job_name = 'callpanion-in-app-calls';
+
+-- Test RPC functions
+SELECT COUNT(*) FROM rpc_find_schedules_to_queue();
+SELECT COUNT(*) FROM rpc_find_ready_notifications();
+```
+
+### Testing & Verification
+```bash
+# Test enhanced scheduler
+curl -X POST "https://umjtepmdwfyfhdzbkyli.supabase.co/functions/v1/schedulerInAppCalls" \
+  -H "Authorization: Bearer [TOKEN]" -d '{"trigger": "test"}'
+
+# Run comprehensive tests
+# Execute: callpanion-web/test_5min_queueing.sql
+```
+
+### Configuration Files
+- **Migration**: `supabase/migrations/20250922145216_create_notification_queue_system.sql`
+- **Test Scripts**: `test_5min_queueing.sql`, `scripts/test-notifications.sql`
+- **Deployment Report**: `DEPLOYMENT_REPORT_20250922.md`
+
+### Deployment Status
+- ✅ Database migration applied manually via Supabase Dashboard
+- ✅ Enhanced scheduler deployed successfully
+- ✅ Cron job updated to every minute
+- ✅ All RPC functions working
+- ✅ Notification queue table operational
+- ✅ 5-minute queueing system active
+
+### Performance Improvements
+- **Timing Precision**: ±3 minutes → ±30 seconds
+- **Reliability**: Single-shot → 3x retry with exponential backoff
+- **Device Detection**: Basic → Multi-source with fallbacks
+- **Monitoring**: Basic logs → Comprehensive heartbeat + error tracking
+
 ## Related Documentation
 
 - **INTEGRATION_GUIDE.md**: Technical integration specifications
 - **INTEGRATION_WORKFLOW.md**: Detailed web-Flutter development workflow
 - **callpanion-web/README.md**: Web project specific documentation
+- **DEPLOYMENT_REPORT_20250922.md**: Enhanced notification system deployment details
 
 This integrated setup ensures seamless development between Lovable.dev web project and Flutter APK with real-time integration testing and debugging capabilities! 🚀
