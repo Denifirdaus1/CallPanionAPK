@@ -13,7 +13,8 @@
       "Bash(supabase status:*)",
       "Bash(npm install:*)",
       "Bash(curl:*)",
-      "Bash(npx supabase:*)"
+      "Bash(npx supabase:*)",
+      "Bash(claude config list)"
     ],
     "deny": [],
     "ask": []

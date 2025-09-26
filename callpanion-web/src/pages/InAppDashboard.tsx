@@ -11,7 +11,7 @@ import { InAppCallScheduleManager } from "@/components/InAppCallScheduleManager"
 import { DevicePairingManager } from "@/components/DevicePairingManager";
 import { InAppCallScheduleSettings } from "@/components/InAppCallScheduleSettings";
 import { PairedDevicesStatus } from "@/components/PairedDevicesStatus";
-import ElevenLabsCallInterface from "@/components/ElevenLabsCallInterface";
+// ElevenLabsCallInterface removed - now using Flutter native
 
 interface Household {
   id: string;
@@ -505,17 +505,21 @@ const InAppDashboard = () => {
         </div>
       </div>
 
-      {/* Active Call Interface */}
+      {/* Active Call Interface - Now handled by Flutter native app */}
       {currentCall && (
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
-          <ElevenLabsCallInterface
-            sessionId={currentCall.sessionId}
-            relativeName={currentCall.relativeName}
-            onCallEnd={() => {
-              setCurrentCall(null);
-              loadDashboardData(); // Refresh dashboard after call
-            }}
-          />
+          <div className="text-center space-y-4">
+            <h3 className="text-lg font-semibold">Call in Progress</h3>
+            <p className="text-muted-foreground">
+              Voice call with {currentCall.relativeName} is now handled by Flutter native app
+            </p>
+            <button 
+              onClick={() => setCurrentCall(null)}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md"
+            >
+              Close
+            </button>
+          </div>
         </div>
       )}
 

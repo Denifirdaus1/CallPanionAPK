@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import ElevenLabsCallInterface from '@/components/ElevenLabsCallInterface';
-import WebRTCCallInterface from '@/components/WebRTCCallInterface';
+// ElevenLabsCallInterface and WebRTCCallInterface removed - now using Flutter native
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Phone, PhoneOff } from 'lucide-react';
@@ -153,13 +152,22 @@ const ElderlyCallInterface: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-black">
-      {/* Use WebRTC interface for real conversation */}
-      <WebRTCCallInterface
-        sessionId={sessionId}
-        relativeName={relativeName}
-        onCallEnd={handleCallEnd}
-      />
+    <div className="min-h-screen bg-gradient-to-b from-primary/10 to-background flex items-center justify-center p-4">
+      <Card className="w-full max-w-md">
+        <CardContent className="text-center p-8">
+          <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Phone className="w-8 h-8 text-primary" />
+          </div>
+          <h2 className="text-2xl font-semibold mb-2">Call Interface</h2>
+          <p className="text-lg mb-4">{relativeName}</p>
+          <p className="text-muted-foreground mb-6">
+            Voice calls are now handled by Flutter native app
+          </p>
+          <Badge variant="secondary" className="mt-4">
+            Flutter Native
+          </Badge>
+        </CardContent>
+      </Card>
     </div>
   );
 };
