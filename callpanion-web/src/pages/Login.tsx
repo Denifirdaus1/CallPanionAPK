@@ -130,22 +130,7 @@ const Login = () => {
           </CardContent>
         </Card>
 
-        {/* Quick Access */}
-        <Card className="border-primary/20">
-          <CardHeader>
-            <CardTitle className="text-lg text-center">Quick Access</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Button
-              variant="outline"
-              className="w-full h-12"
-              onClick={() => navigate('/elderly')}
-            >
-              <User className="h-5 w-5 mr-2" />
-              Go to Elderly Interface
-            </Button>
-          </CardContent>
-        </Card>
+        {/* Quick Access removed: Elderly interface is handled natively in Flutter */}
 
         {/* Footer */}
         <div className="text-center text-sm text-muted-foreground">

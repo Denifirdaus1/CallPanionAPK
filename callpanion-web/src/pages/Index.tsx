@@ -35,12 +35,7 @@ const Index = () => {
                 Sign up today
               </Button>
             </Link>
-            <Link to="/elderly">
-              <Button size="lg" variant="outline" className="h-14 px-8 text-lg font-semibold border-primary/30">
-                <Users className="h-6 w-6 mr-3" />
-                Elderly Interface
-              </Button>
-            </Link>
+            {/* Elderly web interface link removed: elderly UI is native Flutter */}
           </div>
           
           <div className="mt-6 pt-6 border-t border-muted-foreground/20">
@@ -103,12 +98,7 @@ const Index = () => {
               <li>• Beautiful photo gallery</li>
               <li>• Simple, warm interface</li>
             </ul>
-            <Link to="/elderly">
-              <Button className="bg-white text-primary hover:bg-white/90">
-                Go to Simple Interface
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            </Link>
+            {/* Link to elderly simple interface removed */}
           </WarmCard>
         </div>
 
@@ -184,12 +174,7 @@ const Index = () => {
                   Sign up today
                 </Button>
               </Link>
-              <Link to="/elderly">
-                <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10 h-14 px-8 text-lg font-semibold">
-                  <Users className="h-6 w-6 mr-3" />
-                  Try the Simple Interface
-                </Button>
-              </Link>
+              {/* CTA to elderly interface removed */}
             </div>
           </div>
         </WarmCard>

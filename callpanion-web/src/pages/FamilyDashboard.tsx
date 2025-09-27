@@ -489,16 +489,7 @@ const FamilyDashboard: React.FC = () => {
                 </WarmCard>
               </div>
 
-              <div onClick={() => navigate('/family/elderly-access')}>
-                <WarmCard 
-                  gradient="peace" 
-                  className="p-6 text-center cursor-pointer hover:shadow-lg transition-shadow"
-                >
-                  <Settings className="w-12 h-12 text-white mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold text-white mb-2">Access Management</h3>
-                  <p className="text-white/80">Control what relatives can see</p>
-                </WarmCard>
-              </div>
+              {/* Elderly web access management removed to avoid confusion with native app */}
             </>
           )}
         </div>

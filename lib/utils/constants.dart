@@ -8,8 +8,7 @@ class AppConstants {
   static const String updateCallStatusUrl = '$supabaseUrl/functions/v1/updateCallStatus';
   static const String checkScheduledCallsUrl = '$supabaseUrl/functions/v1/check-scheduled-calls';
 
-  // CallPanion Web Interface - Updated URL
-  static const String webCallBaseUrl = 'https://a4b57244-d3ad-47ea-85ca-c99941e17d30.lovableproject.com/elderly/call';
+  // Note: Elderly UI is fully native Flutter. No WebView endpoint required.
 
   // Shared Preferences Keys
   static const String keyDeviceToken = 'device_token';

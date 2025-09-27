@@ -14,8 +14,6 @@ import DashboardRouter from "@/pages/DashboardRouter";
 import BatchCallDashboard from "@/pages/BatchCallDashboard";
 import InAppDashboard from "@/pages/InAppDashboard";
 import CallMethodSelection from "@/pages/onboarding/CallMethodSelection";
-import ElderlyApp from '@/pages/ElderlyApp';
-import ElderlyCallInterface from '@/pages/ElderlyCallInterface';
 import DevicePairing from '@/pages/DevicePairing';
 
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -53,9 +51,7 @@ const AppRouter = () => {
       <Route path="/legal/health-disclaimer" element={<HealthDisclaimer />} />
       <Route path="/legal/family-consent" element={<FamilyConsent />} />
       
-      {/* Elderly Device Route - Public access for paired devices */}
-        <Route path="/elderly" element={<ElderlyApp />} />
-        <Route path="/elderly/call" element={<ElderlyCallInterface />} />
+      {/* Elderly Device routes removed: native Flutter handles elderly UI */}
       
       {/* Protected routes */}
           <Route path="/dashboard" element={
