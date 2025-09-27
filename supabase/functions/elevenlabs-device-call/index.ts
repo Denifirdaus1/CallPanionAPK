@@ -1,11 +1,23 @@
+// supabase/functions/elevenlabs-device-call/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { serviceClient } from '../_shared/client.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
+
+interface DeviceCallRequest {
+  sessionId: string;
+  action: 'start' | 'end' | 'update_conversation_id';
+  pairingToken: string;
+  deviceToken: string;
+  conversationSummary?: string;
+  duration?: number;
+  outcome?: string;
+  callLogId?: string;
+  conversationId?: string;
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -15,258 +27,278 @@ serve(async (req) => {
 
   try {
     const supabase = serviceClient();
+    const body: DeviceCallRequest = await req.json();
 
-    // Read request body once and destructure all needed fields
-    const payload = await req.json();
-    const {
-      sessionId, action, pairingToken, deviceToken,
-      callLogId, conversationId, conversationSummary, duration, outcome
-    } = payload;
+    console.log('=== elevenlabs-device-call triggered ===');
+    console.log('Action:', body.action);
+    console.log('SessionId:', body.sessionId);
 
-    if (!sessionId) {
-      throw new Error('sessionId is required');
-    }
-
-    // Get session details
-    const { data: session, error: sessionError } = await supabase
-      .from('call_sessions')
-      .select(`
-        *,
-        relatives (
-          id,
-          first_name,
-          last_name,
-          household_id,
-          device_token
-        ),
-        households (
-          id,
-          name
-        )
-      `)
-      .eq('id', sessionId)
+    // Validate device pairing
+    const { data: devicePair, error: pairError } = await supabase
+      .from('device_pairs')
+      .select('household_id, relative_id, device_info')
+      .eq('pairing_token', body.pairingToken)
+      .not('claimed_at', 'is', null)
       .single();
 
-    if (sessionError || !session) {
-      throw new Error('Session not found');
+    if (pairError || !devicePair) {
+      console.error('Invalid pairing token:', pairError);
+      return new Response(
+        JSON.stringify({ error: 'Invalid pairing token or device not paired' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    // Verify device access using pairing token or device token
-    let hasAccess = false;
+    const householdId = devicePair.household_id;
+    const relativeId = devicePair.relative_id;
 
-    if (pairingToken) {
-      const { data: devicePair, error: pairError } = await supabase
-        .from('device_pairs')
-        .select('household_id, relative_id')
-        .eq('pair_token', pairingToken)
-        .eq('household_id', session.relatives.household_id)
-        .single();
+    // Get ElevenLabs API key and Agent ID
+    const ELEVENLABS_API_KEY = Deno.env.get('ELEVENLABS_API_KEY');
+    const ELEVEN_AGENT_ID_IN_APP = Deno.env.get('ELEVEN_AGENT_ID_IN_APP');
 
-      if (!pairError && devicePair) {
-        hasAccess = true;
-      }
+    if (!ELEVENLABS_API_KEY || !ELEVEN_AGENT_ID_IN_APP) {
+      throw new Error('Missing ElevenLabs configuration');
     }
 
-    if (!hasAccess && deviceToken) {
-      // Check if device token matches the relative's device
-      if (session.relatives.device_token === deviceToken) {
-        hasAccess = true;
-      }
-    }
+    switch (body.action) {
+      case 'start': {
+        // Get relative information for context
+        const { data: relative, error: relativeError } = await supabase
+          .from('relatives')
+          .select('first_name, last_name, town, country')
+          .eq('id', relativeId)
+          .single();
 
-    if (!hasAccess) {
-      throw new Error('Device not authorized for this call');
-    }
-
-    const elevenLabsApiKey = Deno.env.get('ELEVENLABS_API_KEY');
-    const agentId = Deno.env.get('ELEVEN_AGENT_ID_IN_APP');
-
-    if (!elevenLabsApiKey) {
-      throw new Error('ELEVENLABS_API_KEY not configured');
-    }
-    if (!agentId) {
-      throw new Error('ELEVEN_AGENT_ID_IN_APP not configured');
-    }
-
-    if (action === 'start') {
-      console.log('Starting ElevenLabs WebRTC call for device session:', sessionId);
-
-      // Get WebRTC conversation token (GET endpoint, no body)
-      const tokenUrl = `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${agentId}`;
-
-      const elevenLabsResponse = await fetch(tokenUrl, {
-        method: 'GET',
-        headers: {
-          'xi-api-key': elevenLabsApiKey
+        if (relativeError) {
+          throw new Error(`Failed to fetch relative info: ${relativeError.message}`);
         }
-      });
 
-      if (!elevenLabsResponse.ok) {
-        const errorData = await elevenLabsResponse.text();
-        console.error('ElevenLabs token API error:', errorData);
-        throw new Error('Failed to get ElevenLabs WebRTC token');
-      }
+        // Get household information
+        const { data: household } = await supabase
+          .from('households')
+          .select('family_name, primary_user_id')
+          .eq('id', householdId)
+          .single();
 
-      const elevenLabsData = await elevenLabsResponse.json();
-      const conversationToken = elevenLabsData.token;
-
-      if (!conversationToken) {
-        throw new Error('No conversation token received from ElevenLabs');
-      }
-
-      // Update session status
-      await supabase
-        .from('call_sessions')
-        .update({
-          status: 'in_progress',
-          started_at: new Date().toISOString()
-        })
-        .eq('id', sessionId);
-
-      // Create call log entry (provider_call_id will be updated with conversationId from client)
-      const { data: callLog, error: callLogError } = await supabase
-        .from('call_logs')
-        .insert({
-          user_id: session.relatives.id, // Fix: Add user_id to prevent null constraint violation
-          household_id: session.relatives.household_id,
-          relative_id: session.relatives.id,
-          call_outcome: 'in_progress',
-          provider: 'elevenlabs',
-          call_type: 'in_app_call',
-          session_id: sessionId
-        })
-        .select()
-        .single();
-
-      if (callLogError) {
-        console.error('Error creating call log:', callLogError);
-      }
-
-      console.log('ElevenLabs WebRTC call started successfully:', {
-        sessionId,
-        relativeId: session.relatives.id,
-        householdId: session.relatives.household_id,
-        callLogId: callLog?.id
-      });
-
-      return new Response(JSON.stringify({
-        success: true,
-        sessionId,
-        conversationToken,
-        agentId,
-        relativeName: `${session.relatives.first_name} ${session.relatives.last_name}`,
-        callLogId: callLog?.id,
-        householdId: session.relatives.household_id,
-        relativeId: session.relatives.id
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-
-    } else if (action === 'update_conversation_id') {
-      console.log('Updating call log with conversation ID');
-
-      if (!callLogId || !conversationId) {
-        throw new Error('callLogId and conversationId are required');
-      }
-
-      // Update both call log and session with conversation ID
-      await Promise.all([
-        supabase
-          .from('call_logs')
-          .update({ provider_call_id: conversationId })
-          .eq('id', callLogId),
-        supabase
+        // Create conversation session in database
+        const { data: session, error: sessionError } = await supabase
           .from('call_sessions')
-          .update({ provider_session_id: conversationId })
-          .eq('id', sessionId)
-      ]);
+          .insert({
+            id: body.sessionId,
+            household_id: householdId,
+            relative_id: relativeId,
+            status: 'connecting',
+            provider: 'webrtc',
+            call_type: 'in_app_call',
+            created_at: new Date().toISOString()
+          })
+          .select()
+          .single();
 
-      console.log('Call log and session updated with conversation ID:', conversationId);
+        if (sessionError) {
+          throw new Error(`Failed to create call session: ${sessionError.message}`);
+        }
 
-      return new Response(JSON.stringify({
-        success: true,
-        callLogId,
-        conversationId
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+        // Create initial call log
+        const { data: callLog, error: logError } = await supabase
+          .from('call_logs')
+          .insert({
+            user_id: relativeId,
+            relative_id: relativeId,
+            household_id: householdId,
+            call_outcome: 'initiating',
+            provider: 'webrtc',
+            call_type: 'in_app_call',
+            session_id: session.id,
+            timestamp: new Date().toISOString()
+          })
+          .select()
+          .single();
 
-    } else if (action === 'end') {
-      console.log('Ending ElevenLabs WebRTC call for device session:', sessionId);
+        if (logError) {
+          console.error('Failed to create call log:', logError);
+        }
 
-      // Update session status
-      await supabase
-        .from('call_sessions')
-        .update({
-          status: 'completed',
-          ended_at: new Date().toISOString(),
-          duration_seconds: duration,
-          summary: conversationSummary
-        })
-        .eq('id', sessionId);
+        // Request conversation token from ElevenLabs
+        console.log('Requesting conversation token from ElevenLabs...');
+        
+        const conversationResponse = await fetch('https://api.elevenlabs.io/v1/conversations/webrtc', {
+          method: 'POST',
+          headers: {
+            'xi-api-key': ELEVENLABS_API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            agent_id: ELEVEN_AGENT_ID_IN_APP,
+            custom_voice_id: null, // Use agent's default voice
+            custom_llm_extra_body: {
+              // Pass context variables that the agent can use
+              variables: {
+                relative_name: relative.first_name || 'friend',
+                relative_full_name: `${relative.first_name} ${relative.last_name}`,
+                relative_location: `${relative.town}, ${relative.country}`,
+                family_name: household?.family_name || 'your family',
+                household_id: householdId,
+                relative_id: relativeId,
+                session_id: body.sessionId,
+                call_type: 'in_app_call',
+                device_call: 'true'
+              }
+            },
+            // Post-call webhook configuration
+            webhook_url: `${Deno.env.get('SUPABASE_URL')}/functions/v1/elevenlabs-webhook`,
+            webhook_secret: Deno.env.get('ELEVENLABS_WEBHOOK_SECRET'),
+            // Additional metadata
+            metadata: {
+              household_id: householdId,
+              relative_id: relativeId,
+              session_id: body.sessionId,
+              call_log_id: callLog?.id,
+              call_type: 'in_app_call',
+              device_initiated: 'true'
+            }
+          })
+        });
 
-      // Update call log
-      const { data: callLogs } = await supabase
-        .from('call_logs')
-        .select('id')
-        .eq('session_id', sessionId)
-        .eq('provider', 'elevenlabs');
+        if (!conversationResponse.ok) {
+          const errorText = await conversationResponse.text();
+          console.error('ElevenLabs API error:', errorText);
+          throw new Error(`Failed to get conversation token: ${conversationResponse.status}`);
+        }
 
-      if (callLogs && callLogs.length > 0) {
+        const conversationData = await conversationResponse.json();
+        
+        console.log('✅ Conversation token received');
+
+        // Update session status to active
+        await supabase
+          .from('call_sessions')
+          .update({
+            status: 'active',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', session.id);
+
+        // Broadcast to dashboard that call is starting
+        await supabase.from('realtime_events').insert({
+          channel: `household:${householdId}`,
+          event: 'call_started',
+          payload: {
+            session_id: session.id,
+            relative_id: relativeId,
+            relative_name: relative.first_name,
+            call_type: 'in_app_call'
+          }
+        });
+
+        return new Response(
+          JSON.stringify({
+            conversationToken: conversationData.conversation_token,
+            conversationId: conversationData.conversation_id,
+            callLogId: callLog?.id,
+            householdId: householdId,
+            relativeId: relativeId,
+            relativeName: relative.first_name
+          }),
+          { 
+            status: 200, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      case 'end': {
+        // Update call session status
+        const { error: sessionUpdateError } = await supabase
+          .from('call_sessions')
+          .update({
+            status: 'completed',
+            ended_at: new Date().toISOString(),
+            duration: body.duration || 0,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', body.sessionId);
+
+        if (sessionUpdateError) {
+          console.error('Failed to update call session:', sessionUpdateError);
+        }
+
+        // Update call log
         await supabase
           .from('call_logs')
           .update({
-            call_outcome: outcome,
-            call_duration: duration,
-            conversation_summary: conversationSummary,
-            timestamp: new Date().toISOString()
+            call_outcome: body.outcome || 'completed',
+            duration: body.duration,
+            conversation_summary: body.conversationSummary,
+            updated_at: new Date().toISOString()
           })
-          .eq('id', callLogs[0].id);
+          .eq('session_id', body.sessionId);
 
-        // Create conversation summary for family dashboard
-        if (conversationSummary) {
-          await supabase
-            .from('call_summaries')
-            .insert({
-              call_log_id: callLogs[0].id,
-              household_id: session.relatives.household_id,
-              relative_id: session.relatives.id,
-              provider_call_id: session.provider_session_id,
-              summary: conversationSummary,
-              mood_assessment: 'positive', // Will be updated by AI analysis
-              health_mentions: [],
-              escalation_needed: false
-            });
-        }
+        // Broadcast to dashboard that call ended
+        await supabase.from('realtime_events').insert({
+          channel: `household:${householdId}`,
+          event: 'call_ended',
+          payload: {
+            session_id: body.sessionId,
+            relative_id: relativeId,
+            duration: body.duration,
+            outcome: body.outcome
+          }
+        });
+
+        return new Response(
+          JSON.stringify({ success: true }),
+          { 
+            status: 200, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
       }
 
-      console.log('ElevenLabs WebRTC call ended successfully:', {
-        sessionId,
-        duration,
-        outcome
-      });
+      case 'update_conversation_id': {
+        // Update call log with ElevenLabs conversation ID
+        if (body.callLogId && body.conversationId) {
+          await supabase
+            .from('call_logs')
+            .update({
+              conversation_id: body.conversationId,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', body.callLogId);
 
-      return new Response(JSON.stringify({
-        success: true,
-        sessionId,
-        outcome,
-        duration
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+          console.log(`✅ Updated call log ${body.callLogId} with conversation ID ${body.conversationId}`);
+        }
 
-    } else {
-      throw new Error('Invalid action. Use "start" or "end"');
+        return new Response(
+          JSON.stringify({ success: true }),
+          { 
+            status: 200, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
+      default:
+        return new Response(
+          JSON.stringify({ error: `Unknown action: ${body.action}` }),
+          { 
+            status: 400, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        );
     }
 
   } catch (error) {
-    console.error('Error in elevenlabs-device-call function:', error);
-    return new Response(JSON.stringify({
-      error: 'operation_failed',
-      message: error.message
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('Error in elevenlabs-device-call:', error);
+    return new Response(
+      JSON.stringify({ 
+        error: 'Internal server error', 
+        message: error.message 
+      }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    );
   }
 });
