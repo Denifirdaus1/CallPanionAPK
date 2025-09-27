@@ -121,6 +121,7 @@ serve(async (req) => {
 
         // Request conversation token from ElevenLabs
         console.log('Requesting conversation token from ElevenLabs...');
+        console.log('Agent ID:', ELEVEN_AGENT_ID_IN_APP);
         
         const conversationResponse = await fetch('https://api.elevenlabs.io/v1/conversations/webrtc', {
           method: 'POST',
@@ -148,14 +149,18 @@ serve(async (req) => {
             // Post-call webhook configuration
             webhook_url: `${Deno.env.get('SUPABASE_URL')}/functions/v1/elevenlabs-webhook`,
             webhook_secret: Deno.env.get('ELEVENLABS_WEBHOOK_SECRET'),
-            // Additional metadata
+            // Additional metadata for webhook processing
             metadata: {
               household_id: householdId,
               relative_id: relativeId,
               session_id: body.sessionId,
               call_log_id: callLog?.id,
               call_type: 'in_app_call',
-              device_initiated: 'true'
+              device_initiated: 'true',
+              relative_name: relative.first_name,
+              family_name: household?.family_name,
+              // Add timestamp for debugging
+              created_at: new Date().toISOString()
             }
           })
         });
