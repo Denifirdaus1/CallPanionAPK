@@ -40,6 +40,15 @@ target 'Runner' do
   # CallKit
   pod 'CallKit'
   pod 'PushKit'
+  
+  # ElevenLabs iOS SDK - HAPUS karena tidak tersedia di CocoaPods
+  # pod 'ElevenLabs', '~> 0.2.0'
+  
+  # WebRTC dependencies - ElevenLabs SDK sudah include WebRTC
+  # pod 'GoogleWebRTC', '~> 1.1' # Tidak diperlukan
+  
+  # Audio dependencies
+  pod 'AVFoundation'
 end
 
 post_install do |installer|
