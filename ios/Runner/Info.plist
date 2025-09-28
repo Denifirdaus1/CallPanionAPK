@@ -83,6 +83,22 @@
 		<array>
 			<string>CXHandleTypeGeneric</string>
 		</array>
+		<key>CXMaximumCallGroups</key>
+		<integer>1</integer>
+		<key>CXMaximumCallsPerCallGroup</key>
+		<integer>1</integer>
+		<key>CXSupportsVideo</key>
+		<false/>
+		<key>CXSupportsDTMF</key>
+		<false/>
+		<key>CXSupportsHolding</key>
+		<false/>
+		<key>CXSupportsGrouping</key>
+		<false/>
+		<key>CXSupportsUngrouping</key>
+		<false/>
+		<key>CXSupportsInCall</key>
+		<false/>
 	</dict>
 </dict>
 </plist>

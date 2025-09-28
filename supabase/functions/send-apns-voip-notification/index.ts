@@ -153,9 +153,11 @@ serve(async (req) => {
         sound: isVoIP ? 'default' : 'default',
         badge: 1,
         'content-available': 1,
+        'mutable-content': 1,
         ...(isVoIP && {
           // VoIP specific properties
-          category: 'INCOMING_CALL'
+          category: 'INCOMING_CALL',
+          'interruption-level': 'critical'
         })
       },
       // Custom data

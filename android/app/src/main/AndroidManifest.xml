@@ -61,6 +61,11 @@
             </intent-filter>
         </service>
 
+        <!-- Firebase Messaging Background Service -->
+        <service
+            android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingBackgroundService"
+            android:exported="false" />
+
         <!-- CallKit Incoming Service -->
         <service
             android:name="com.hiennv.flutter_callkit_incoming.CallkitIncomingBroadcastReceiver"
@@ -90,6 +95,16 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="callpanion_calls" />
+
+        <!-- Notification Channel for Android 8+ -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_name"
+            android:value="CallPanion Calls" />
+
+        <!-- High priority notification for incoming calls -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_priority"
+            android:value="2" />
     </application>
 
     <!-- Queries for PackageManager -->

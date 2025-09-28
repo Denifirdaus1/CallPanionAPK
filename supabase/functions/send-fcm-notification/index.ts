@@ -123,7 +123,16 @@ serve(async (req) => {
         android: {
           priority: 'high',
           notification: {
-            sound: 'default'
+            sound: 'default',
+            channel_id: 'callpanion_calls',
+            click_action: 'FLUTTER_NOTIFICATION_CLICK'
+          },
+          data: {
+            ...toStringMap(data),
+            type: data.type || 'incoming_call',
+            household_id: String(householdId || ''),
+            relative_id: String(relativeId || ''),
+            timestamp: Date.now().toString()
           }
         },
         apns: {
