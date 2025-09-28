@@ -98,9 +98,10 @@ class ElevenLabsCallService {
       ElevenLabsCallService._internal();
   static ElevenLabsCallService get instance => _instance;
 
-  static const _methodChannel =
-      MethodChannel('com.yourapp.elevenlabs/conversation');
-  static const _eventChannel = EventChannel('com.yourapp.elevenlabs/events');
+  static const _methodChannel = MethodChannel(
+      'app.lovable.a4b57244d3ad47ea85cac99941e17d30.elevenlabs/conversation');
+  static const _eventChannel = EventChannel(
+      'app.lovable.a4b57244d3ad47ea85cac99941e17d30.elevenlabs/events');
 
   // Enhanced state management
   bool _isCallActive = false;

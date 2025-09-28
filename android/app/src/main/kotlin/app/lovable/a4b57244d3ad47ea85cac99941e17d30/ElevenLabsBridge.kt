@@ -24,8 +24,8 @@ class ElevenLabsBridge(
 
     companion object {
         private const val TAG = "ElevenLabsBridge"
-        private const val METHOD_CHANNEL_NAME = "com.yourapp.elevenlabs/conversation"
-        private const val EVENT_CHANNEL_NAME = "com.yourapp.elevenlabs/events"
+        private const val METHOD_CHANNEL_NAME = "app.lovable.a4b57244d3ad47ea85cac99941e17d30.elevenlabs/conversation"
+        private const val EVENT_CHANNEL_NAME = "app.lovable.a4b57244d3ad47ea85cac99941e17d30.elevenlabs/events"
     }
 
     private val methodChannel = MethodChannel(messenger, METHOD_CHANNEL_NAME)

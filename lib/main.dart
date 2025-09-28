@@ -5,6 +5,7 @@ import 'services/callkit_service.dart';
 import 'services/fcm_service.dart';
 import 'services/permission_service.dart';
 import 'services/network_service.dart';
+import 'services/elevenlabs_call_service.dart';
 import 'screens/main_screen.dart';
 import 'screens/call_screen.dart';
 import 'models/call_data.dart';
@@ -34,6 +35,9 @@ void main() async {
 
   // Initialize FCM service
   await FCMService.instance.initialize();
+
+  // Initialize ElevenLabs service
+  await ElevenLabsCallService.instance.initialize();
 
   runApp(const CallPanionElderlyApp());
 }
@@ -126,25 +130,25 @@ class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> {
           brightness: Brightness.light,
         ),
       ),
-      home: _shouldShowMainScreen 
-        ? const MainScreen() 
-        : Scaffold(
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
-                  Text(
-                    _pendingCall != null 
-                      ? 'Connecting to ${_pendingCall!.relativeName}...' 
-                      : 'Connecting to call...',
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                ],
+      home: _shouldShowMainScreen
+          ? const MainScreen()
+          : Scaffold(
+              body: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text(
+                      _pendingCall != null
+                          ? 'Connecting to ${_pendingCall!.relativeName}...'
+                          : 'Connecting to call...',
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
       debugShowCheckedModeBanner: false,
     );
   }
