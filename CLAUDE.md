@@ -1,7 +1,16 @@
 # Claude Configuration for CallPanion Elderly
 
 ## Project Overview
-CallPanion Elderly adalah aplikasi Flutter native untuk in‑app calls dengan integrasi CallKit (iOS), FCM (Android), dan APNS VoIP (iOS). Tidak ada WebView untuk UI elderly. Aplikasi web React hanya berfungsi sebagai dashboard keluarga: pairing device, penjadwalan, monitoring, dan ringkasan panggilan.
+CallPanion Elderly adalah aplikasi Flutter native untuk in-app calls dengan integrasi CallKit (iOS), FCM (Android), dan APNS VoIP (iOS). Tidak ada WebView untuk UI elderly. Aplikasi web React hanya bertugas sebagai dashboard keluarga: pairing device, penjadwalan, monitoring, dan ringkasan panggilan.
+
+### Web Dashboard (`/dashboard/in-app`)
+- Halaman utama: `callpanion-web/src/pages/InAppDashboard.tsx`.
+- Komponen yang dipakai oleh halaman tersebut:
+  1. `InAppCallScheduleManager`
+  2. `InAppCallScheduleSettings`
+  3. `DevicePairingManager`
+  4. `PairedDevicesStatus`
+- Komponen lain seperti `InAppCallDashboard.tsx` atau `ConversationInsightsDashboard.tsx` bersifat legacy dan tidak digunakan.
 
 ## Development Commands
 ```
@@ -31,11 +40,11 @@ flutter analyze
 
 ## Backend (Supabase Edge Functions)
 - Notifikasi: `send-fcm-notification` (FCM v1 OAuth dengan `FCM_SERVICE_ACCOUNT_JSON`), `send-apns-voip-notification` (JWT; `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_KEY_BASE64`, `APNS_BUNDLE_ID`, `APNS_TOPIC_VOIP`, `APNS_ENV`).
-- Panggilan: `elevenlabs-device-call` (mulai/akhir, kembalikan `conversationToken` untuk native bridge), `updateCallStatus` (sinkronisasi status/log).
+- Panggilan: `elevenlabs-device-call` (mulai/akhir, mengembalikan `conversationToken` untuk native bridge), `updateCallStatus` (sinkronisasi status/log).
 - Pairing & Scheduler: `pair-init`, `pair-claim`, `schedulerInAppCalls`.
 
-## Important (Do/Don’t)
+## Important (Do/Don't)
 - DO: Gunakan native bridge untuk ElevenLabs call, FCM/VoIP untuk notifikasi, dan CallKit untuk UI panggilan.
-- DO: Jaga rahasia (APNS/FCM) via Supabase secrets, bukan di repo.
-- DON’T: Tambah atau gunakan WebView untuk UI elderly. Jangan membuat/merujuk endpoint `/elderly/call` di web.
-- DON’T: Gunakan `FCM_SERVER_KEY`/`FIREBASE_PROJECT_ID` di fungsi FCM v1 — cukup `FCM_SERVICE_ACCOUNT_JSON`.
+- DO: Simpan secrets (APNS/FCM) melalui Supabase secrets, bukan di repo.
+- DON'T: Tambahkan atau gunakan WebView untuk UI elderly. Jangan membuat endpoint `/elderly/call` di web.
+- DON'T: Gunakan `FCM_SERVER_KEY` atau `FIREBASE_PROJECT_ID` pada fungsi FCM v1; cukup `FCM_SERVICE_ACCOUNT_JSON`.

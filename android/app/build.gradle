@@ -71,8 +71,8 @@ dependencies {
     implementation 'androidx.work:work-runtime-ktx:2.8.1'
     implementation 'com.google.android.play:core:1.10.3'
     
-    // ElevenLabs Android SDK - HAPUS karena tidak tersedia di Maven Central
-    // implementation 'io.elevenlabs:elevenlabs-android:0.1.0'
+    // ElevenLabs Android SDK - Official SDK from Maven Central
+    implementation 'io.elevenlabs:elevenlabs-android:0.2.0'
     
     // HTTP and networking
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

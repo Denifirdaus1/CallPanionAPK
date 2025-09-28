@@ -1,16 +1,22 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Flutter app: `lib/` (Dart sources), platform folders `android/`, `ios/`, `windows/`, assets in `assets/` and `fonts/`.
-- Web app (React + Vite + TS): `callpanion-web/` with source in `callpanion-web/src/` and UI in `callpanion-web/src/components/`.
+- Flutter app: `lib/` (Dart sources), platform folders `android/`, `ios/`, `windows/`, assets in `assets/` dan `fonts/`.
+- Web app (React + Vite + TS): `callpanion-web/` dengan source di `callpanion-web/src/` dan UI di `callpanion-web/src/components/`.
+  - Route produksi untuk in-app call (`/dashboard/in-app`) menggunakan `src/pages/InAppDashboard.tsx` dengan komponen:
+    1. `InAppCallScheduleManager`
+    2. `InAppCallScheduleSettings`
+    3. `DevicePairingManager`
+    4. `PairedDevicesStatus`
+  - Komponen seperti `InAppCallDashboard.tsx` atau `ConversationInsightsDashboard.tsx` bersifat legacy dan tidak digunakan.
 - Backend Edge Functions (Supabase Deno/TS): `supabase/functions/<function>/index.ts`.
-- Docs and ops: `README.md`, `SETUP.md`, `MANUAL_DEPLOY_GUIDE.md`, `Knowledge_Callpanion/`.
+- Dokumentasi & ops: `README.md`, `SETUP.md`, `MANUAL_DEPLOY_GUIDE.md`, `Knowledge_Callpanion/`.
 
 ## Build, Test, and Development Commands
 - Flutter
-  - Install deps: `flutter pub get`
+  - Install dependencies: `flutter pub get`
   - Codegen (models/env): `dart run build_runner build --delete-conflicting-outputs`
-  - Run: `flutter run -d <device>` (e.g., `-d chrome`, emulator ID)
+  - Jalankan aplikasi: `flutter run -d <device>`
   - Build APK: `flutter build apk`
 - Web (`callpanion-web/`)
   - Install: `npm ci`
@@ -18,22 +24,22 @@
   - Build: `npm run build`
   - Lint: `npm run lint`
 - Supabase Edge Functions
-  - Local serve (per fn): `npx supabase functions serve <name>`
-  - Deploy (Windows): run root `deploy-functions.bat`
+  - Local serve per fungsi: `npx supabase functions serve <name>`
+  - Deploy (Windows): jalankan `deploy-functions.bat`
 
 ## Coding Style & Naming Conventions
-- Dart (Flutter): 2‑space indent; `snake_case.dart` files; classes `PascalCase`; members `camelCase`. Do not edit generated `*.g.dart` files; run build_runner instead. Prefer `const` where possible.
-- TypeScript/React: 2‑space indent; components `PascalCase.tsx`; utility/modules `camelCase.ts`. Keep UI components in `src/components/` and colocate styles. Run `npm run lint` before PRs.
+- Dart (Flutter): indent 2 spasi; file `snake_case.dart`; kelas `PascalCase`; anggota `camelCase`. Tidak mengedit `*.g.dart` (gunakan build_runner). Gunakan `const` bila memungkinkan.
+- TypeScript/React: indent 2 spasi; komponen `PascalCase.tsx`; utilitas `camelCase.ts`. UI dikelompokkan di `src/components/`. Jalankan `npm run lint` sebelum PR.
 
 ## Testing Guidelines
-- Flutter unit/widget tests: place in `test/` mirroring `lib/`; run `flutter test`.
-- Web E2E: `callpanion-web/qa/e2e/` (Playwright). Commands: `npm install`, then `npm run test`, `npm run test:headed`, or `npm run test:ci`.
-- Aim for coverage on business logic (services in `lib/services/` and `callpanion-web/src/lib/`).
+- Flutter unit/widget tests: letakkan di `test/` mirroring `lib/`; jalankan `flutter test`.
+- Web E2E: `callpanion-web/qa/e2e/` (Playwright) dengan `npm install` lalu `npm run test` / `npm run test:headed` / `npm run test:ci`.
+- Fokus coverage pada business logic (`lib/services/`, `callpanion-web/src/lib/`).
 
 ## Commit & Pull Request Guidelines
-- Use Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`; keep subject ≤72 chars.
-- PRs must include: concise description, linked issues, screenshots for UI changes, and pass lint/tests. Keep changes focused and avoid unrelated refactors.
+- Gunakan Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`) dengan subject <= 72 karakter.
+- PR: sertakan ringkasan, linked issue, screenshot UI (jika relevan), pastikan lint/tests lulus, dan hindari refactor tidak terkait.
 
 ## Security & Configuration Tips
-- Never commit secrets; use Supabase project secrets and `.env`/Vite `VITE_*` vars for the web. Android keystores and Apple certs must stay out of VCS.
-- Mobile push credentials live outside code; see `MANUAL_DEPLOY_GUIDE.md`. For functions, set secrets after `deploy-functions.bat` as prompted.
+- Jangan commit secrets; gunakan Supabase secrets, `.env`, atau `VITE_*`.
+- Kredensial push mobile disimpan di luar repo (lihat `MANUAL_DEPLOY_GUIDE.md`). Setelah deploy functions, set secrets sesuai prompt.

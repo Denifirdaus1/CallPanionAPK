@@ -17,19 +17,18 @@ c.memasukan device pairing token untuk terhubug dengan in app call
 B.dan ini path Bridges nya :
 1.Android bridge ke ElevenLabs SDK
 C:\CallPanionAPK\android\app\src\main\kotlin\app\lovable\a4b57244d3ad47ea85cac99941e17d30\ElevenLabsBridge.kt
-C:\CallPanionAPK\android\app\src\main\kotlin\app\lovable\a4b57244d3ad47ea85cac99941e17d30\MainActivity.kt
 2.iOS bridge ke ElevenLabs SDK:
 C:\CallPanionAPK\ios\Runner\ElevenLabsBridge.swift
 
 C.dan ini Frontend React Components (Web) C:\CallPanionAPK\callpanion-web:
-InAppCallDashboard.tsx - Dashboard utama untuk monitoring statistik in-app calls
-InAppCallMonitor.tsx - Monitor real-time status panggilan aktif dan history
-InAppCallScheduleManager.tsx - Mengelola jadwal sesi panggilan in-app
-InAppCallScheduleSettings.tsx - Pengaturan jadwal panggilan
-InAppCallSummaryViewer.tsx - Melihat ringkasan hasil panggilan
-DevicePairingManager.tsx - Generate token pairing untuk menghubungkan perangkat elderly
-PairedDevicesStatus.tsx - Monitor status perangkat yang sudah dipasangkan
-ConversationInsightsDashboard.tsx - AI insights dari percakapan
+C:\CallPanionAPK\callpanion-web\src\pages\InAppDashboard.tsx - Dashboard utama 
+C:\CallPanionAPK\callpanion-web\src\components\InAppCallMonitor.tsx - Monitor real-time status panggilan aktif dan history
+C:\CallPanionAPK\callpanion-web\src\components\InAppCallScheduleManager.tsx - Mengelola jadwal sesi panggilan in-app
+C:\CallPanionAPK\callpanion-web\src\components\InAppCallScheduleSettings.tsx - Pengaturan jadwal panggilan
+C:\CallPanionAPK\callpanion-web\src\components\InAppCallSummaryViewer.tsx - Melihat ringkasan hasil panggilan
+C:\CallPanionAPK\callpanion-web\src\components\DevicePairingManager.tsx - Generate token pairing untuk menghubungkan perangkat elderly
+C:\CallPanionAPK\callpanion-web\src\components\PairedDevicesStatus.tsx - Monitor status perangkat yang sudah dipasangkan
+C:\CallPanionAPK\callpanion-web\src\components\ConversationInsightsDashboard.tsx - AI insights dari percakapan
 React Hooks & Utilities
 useCallMethodAccess.ts - Hook untuk cek akses metode panggilan (batch vs in-app)
 useRealtimeUpdates.ts - Hook untuk real-time updates call logs & sessions

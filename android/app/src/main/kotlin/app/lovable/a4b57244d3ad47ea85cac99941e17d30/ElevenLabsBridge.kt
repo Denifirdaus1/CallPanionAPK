@@ -12,10 +12,10 @@ import kotlinx.coroutines.*
 import android.os.Handler
 import android.os.Looper
 
-// Import ElevenLabs Android SDK
-import com.elevenlabs.android.*
-import com.elevenlabs.android.conversation.*
-import com.elevenlabs.android.models.*
+// Import ElevenLabs Android SDK - Official SDK
+import io.elevenlabs.*
+import io.elevenlabs.models.*
+import io.elevenlabs.audio.*
 
 class ElevenLabsBridge(
     private val activity: Activity,
@@ -32,9 +32,8 @@ class ElevenLabsBridge(
     private val eventChannel = EventChannel(messenger, EVENT_CHANNEL_NAME)
     private var eventSink: EventChannel.EventSink? = null
     
-    // ElevenLabs SDK objects
-    private var elevenLabsClient: ElevenLabsClient? = null
-    private var activeConversation: ConversationSession? = null
+    // ElevenLabs SDK objects - Official SDK
+    private var conversationSession: ConversationSession? = null
     private var conversationState = ConversationState.IDLE
     private var conversationMetadata = mutableMapOf<String, Any>()
     private var connectionStartTime: Long = 0
@@ -59,14 +58,10 @@ class ElevenLabsBridge(
 
     private fun initializeElevenLabs() {
         try {
-            // Initialize ElevenLabs SDK
-            elevenLabsClient = ElevenLabsClient.Builder(activity)
-                .setLogLevel(LogLevel.DEBUG)
-                .build()
-            
-            Log.d(TAG, "✅ ElevenLabs SDK initialized")
+            // ElevenLabs SDK is initialized when creating ConversationClient
+            Log.d(TAG, "✅ ElevenLabs SDK ready for initialization")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to initialize ElevenLabs SDK: ${e.message}")
+            Log.e(TAG, "❌ Failed to prepare ElevenLabs SDK: ${e.message}")
         }
     }
 
@@ -89,6 +84,9 @@ class ElevenLabsBridge(
                 "endConversation" -> handleEndConversation(result)
                 "sendMessage" -> handleSendMessage(call, result)
                 "setMicMuted" -> handleSetMicMuted(call, result)
+                "sendFeedback" -> handleSendFeedback(call, result)
+                "sendContextualUpdate" -> handleSendContextualUpdate(call, result)
+                "sendUserActivity" -> handleSendUserActivity(result)
                 "getConversationState" -> {
                     result.success(mapOf(
                         "state" to conversationState.name.lowercase(),
@@ -101,7 +99,7 @@ class ElevenLabsBridge(
                     result.success(mapOf(
                         "isConnected" to (conversationState == ConversationState.CONNECTED),
                         "state" to conversationState.name.lowercase(),
-                        "hasActiveConversation" to (activeConversation != null)
+                        "hasActiveConversation" to (conversationSession != null)
                     ))
                 }
                 else -> {
@@ -131,7 +129,7 @@ class ElevenLabsBridge(
             return
         }
 
-        Log.d(TAG, "🚀 Starting ElevenLabs conversation")
+        Log.d(TAG, "🚀 Starting ElevenLabs conversation with official SDK")
         Log.d(TAG, "📋 Dynamic variables: $dynamicVariables")
 
         conversationState = ConversationState.CONNECTING
@@ -148,81 +146,81 @@ class ElevenLabsBridge(
                     }
                 }
 
-                // Create conversation configuration
-                val config = if (conversationToken != null) {
-                    ConversationConfig.Builder()
-                        .setConversationToken(conversationToken)
-                        .setDynamicVariables(dynamicVariables)
-                        .build()
-                } else {
-                    ConversationConfig.Builder()
-                        .setAgentId(agentId!!)
-                        .setDynamicVariables(dynamicVariables)
-                        .build()
-                }
-
-                // Start the conversation
-                activeConversation = elevenLabsClient?.startConversation(
-                    config = config,
-                    listener = object : ConversationListener {
-                        override fun onConversationStarted(conversationId: String) {
-                            Log.d(TAG, "✅ Conversation started: $conversationId")
-                            conversationState = ConversationState.CONNECTED
-                            conversationMetadata["conversationId"] = conversationId
-                            conversationMetadata["startTime"] = connectionStartTime
-                            
-                            sendEvent("conversationConnected", mapOf(
-                                "conversationId" to conversationId,
-                                "timestamp" to System.currentTimeMillis()
-                            ))
-                            
-                            Handler(Looper.getMainLooper()).post {
-                                result.success(conversationId)
+                // Create conversation configuration using official SDK
+                val config = ConversationConfig(
+                    agentId = agentId,
+                    conversationToken = conversationToken,
+                    userId = "callpanion_user",
+                    textOnly = false,
+                    audioInputSampleRate = 48000,
+                    dynamicVariables = dynamicVariables,
+                    onConnect = { conversationId ->
+                        Log.d(TAG, "✅ Conversation connected: $conversationId")
+                        conversationState = ConversationState.CONNECTED
+                        conversationMetadata["conversationId"] = conversationId
+                        conversationMetadata["startTime"] = connectionStartTime
+                        
+                        sendEvent("conversationConnected", mapOf(
+                            "conversationId" to conversationId,
+                            "timestamp" to System.currentTimeMillis()
+                        ))
+                        
+                        Handler(Looper.getMainLooper()).post {
+                            result.success(conversationId)
+                        }
+                    },
+                    onMessage = { source, message ->
+                        Log.d(TAG, "💬 Message from $source: $message")
+                        sendEvent("message", mapOf(
+                            "source" to source,
+                            "message" to message,
+                            "timestamp" to System.currentTimeMillis()
+                        ))
+                    },
+                    onModeChange = { mode ->
+                        Log.d(TAG, "🔄 Mode changed to: $mode")
+                        sendEvent("modeChange", mapOf(
+                            "mode" to mode,
+                            "timestamp" to System.currentTimeMillis()
+                        ))
+                    },
+                    onStatusChange = { status ->
+                        Log.d(TAG, "📊 Status changed to: $status")
+                        when (status) {
+                            "connected" -> {
+                                conversationState = ConversationState.CONNECTED
+                            }
+                            "connecting" -> {
+                                conversationState = ConversationState.CONNECTING
+                            }
+                            "disconnected" -> {
+                                conversationState = ConversationState.DISCONNECTED
+                                conversationSession = null
                             }
                         }
-
-                        override fun onAudioReceived(audioData: ByteArray) {
-                            // Audio is handled automatically by the SDK
-                        }
-
-                        override fun onTranscript(text: String, isFinal: Boolean, source: TranscriptSource) {
-                            sendEvent("transcript", mapOf(
-                                "text" to text,
-                                "isFinal" to isFinal,
-                                "source" to source.name
-                            ))
-                        }
-
-                        override fun onMetadata(metadata: Map<String, Any>) {
-                            conversationMetadata.putAll(metadata)
-                            sendEvent("metadata", metadata)
-                        }
-
-                        override fun onError(error: ConversationError) {
-                            Log.e(TAG, "❌ Conversation error: ${error.message}")
-                            conversationState = ConversationState.ERROR
-                            sendEvent("conversationFailed", mapOf(
-                                "error" to error.message,
-                                "code" to error.code
-                            ))
-                        }
-
-                        override fun onConversationEnded(reason: EndReason) {
-                            Log.d(TAG, "🔚 Conversation ended: ${reason.name}")
-                            conversationState = ConversationState.DISCONNECTED
-                            activeConversation = null
-                            
-                            sendEvent("conversationEnded", mapOf(
-                                "reason" to reason.name,
-                                "duration" to (System.currentTimeMillis() - connectionStartTime)
-                            ))
-                        }
-
-                        override fun onModeChange(mode: ConversationMode) {
-                            sendEvent("modeChange", mapOf("mode" to mode.name))
-                        }
+                        sendEvent("statusChange", mapOf(
+                            "status" to status,
+                            "timestamp" to System.currentTimeMillis()
+                        ))
+                    },
+                    onCanSendFeedbackChange = { canSend ->
+                        Log.d(TAG, "👍 Feedback available: $canSend")
+                        sendEvent("feedbackAvailable", mapOf(
+                            "canSend" to canSend,
+                            "timestamp" to System.currentTimeMillis()
+                        ))
+                    },
+                    onVadScore = { score ->
+                        Log.d(TAG, "🎤 VAD Score: $score")
+                        sendEvent("vadScore", mapOf(
+                            "score" to score,
+                            "timestamp" to System.currentTimeMillis()
+                        ))
                     }
                 )
+
+                // Start the conversation using official SDK
+                conversationSession = ConversationClient.startSession(config, activity)
 
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error starting conversation: ${e.message}", e)
@@ -239,8 +237,8 @@ class ElevenLabsBridge(
 
         scope.launch {
             try {
-                activeConversation?.endConversation()
-                activeConversation = null
+                conversationSession?.endSession()
+                conversationSession = null
                 conversationState = ConversationState.DISCONNECTED
 
                 // Reset audio mode
@@ -250,6 +248,11 @@ class ElevenLabsBridge(
 
                 conversationMetadata.clear()
                 connectionStartTime = 0
+
+                sendEvent("conversationEnded", mapOf(
+                    "duration" to (System.currentTimeMillis() - connectionStartTime),
+                    "timestamp" to System.currentTimeMillis()
+                ))
 
                 withContext(Dispatchers.Main) {
                     result.success(null)
@@ -270,14 +273,14 @@ class ElevenLabsBridge(
             return
         }
 
-        if (activeConversation == null) {
+        if (conversationSession == null) {
             result.error("NO_CONVERSATION", "No active conversation", null)
             return
         }
 
         scope.launch {
             try {
-                activeConversation?.sendTextInput(message)
+                conversationSession?.sendUserMessage(message)
                 Log.d(TAG, "💬 Text message sent: $message")
                 withContext(Dispatchers.Main) {
                     result.success(mapOf("success" to true, "message" to message))
@@ -294,9 +297,93 @@ class ElevenLabsBridge(
     private fun handleSetMicMuted(call: MethodCall, result: MethodChannel.Result) {
         val muted = call.argument<Boolean>("muted") ?: false
         
-        activeConversation?.setMicrophoneMuted(muted)
-        sendEvent("microphoneStateChanged", mapOf("muted" to muted))
-        result.success(mapOf("muted" to muted))
+        scope.launch {
+            try {
+                conversationSession?.setMicMuted(muted)
+                sendEvent("microphoneStateChanged", mapOf("muted" to muted))
+                withContext(Dispatchers.Main) {
+                    result.success(mapOf("muted" to muted))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error setting microphone mute: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("MUTE_FAILED", e.message, null)
+                }
+            }
+        }
+    }
+
+    private fun handleSendFeedback(call: MethodCall, result: MethodChannel.Result) {
+        val isPositive = call.argument<Boolean>("isPositive") ?: true
+        
+        if (conversationSession == null) {
+            result.error("NO_CONVERSATION", "No active conversation", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                conversationSession?.sendFeedback(isPositive)
+                Log.d(TAG, "👍 Feedback sent: ${if (isPositive) "positive" else "negative"}")
+                withContext(Dispatchers.Main) {
+                    result.success(mapOf("success" to true, "isPositive" to isPositive))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error sending feedback: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("FEEDBACK_FAILED", e.message, null)
+                }
+            }
+        }
+    }
+
+    private fun handleSendContextualUpdate(call: MethodCall, result: MethodChannel.Result) {
+        val update = call.argument<String>("update") ?: run {
+            result.error("INVALID_ARGUMENT", "update parameter required", null)
+            return
+        }
+
+        if (conversationSession == null) {
+            result.error("NO_CONVERSATION", "No active conversation", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                conversationSession?.sendContextualUpdate(update)
+                Log.d(TAG, "📝 Contextual update sent: $update")
+                withContext(Dispatchers.Main) {
+                    result.success(mapOf("success" to true, "update" to update))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error sending contextual update: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("CONTEXTUAL_UPDATE_FAILED", e.message, null)
+                }
+            }
+        }
+    }
+
+    private fun handleSendUserActivity(result: MethodChannel.Result) {
+        if (conversationSession == null) {
+            result.error("NO_CONVERSATION", "No active conversation", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                conversationSession?.sendUserActivity()
+                Log.d(TAG, "👤 User activity sent")
+                withContext(Dispatchers.Main) {
+                    result.success(mapOf("success" to true))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error sending user activity: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    result.error("USER_ACTIVITY_FAILED", e.message, null)
+                }
+            }
+        }
     }
 
     private fun sendEvent(type: String, data: Map<String, Any>) {
@@ -324,8 +411,8 @@ class ElevenLabsBridge(
 
     fun dispose() {
         Log.d(TAG, "🧹 Disposing ElevenLabsBridge")
-        activeConversation?.endConversation()
-        elevenLabsClient?.release()
+        conversationSession?.endSession()
+        conversationSession = null
         scope.cancel()
         audioManager?.mode = AudioManager.MODE_NORMAL
         eventSink = null

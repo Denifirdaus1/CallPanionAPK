@@ -8,13 +8,7 @@ import '../models/call_data.dart';
 import '../utils/constants.dart';
 
 // Enhanced enums and models
-enum ConversationState {
-  idle,
-  connecting,
-  connected,
-  disconnected,
-  error
-}
+enum ConversationState { idle, connecting, connected, disconnected, error }
 
 enum ConversationEventType {
   conversationConnected,
@@ -40,8 +34,8 @@ class ConversationEvent {
     final eventType = eventData['type'] as String;
     final data = eventData['data'] as Map<String, dynamic>? ?? {};
     final timestamp = DateTime.fromMillisecondsSinceEpoch(
-      (eventData['timestamp'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch
-    );
+        (eventData['timestamp'] as num?)?.toInt() ??
+            DateTime.now().millisecondsSinceEpoch);
 
     ConversationEventType type;
     switch (eventType) {
@@ -87,22 +81,25 @@ class ConversationException implements Exception {
   }) : timestamp = DateTime.now();
 
   @override
-  String toString() => 'ConversationException: $message${code != null ? ' (Code: $code)' : ''}';
+  String toString() =>
+      'ConversationException: $message${code != null ? ' (Code: $code)' : ''}';
 
   Map<String, dynamic> toJson() => {
-    'message': message,
-    'code': code,
-    'retryable': retryable,
-    'debugInfo': debugInfo,
-    'timestamp': timestamp.toIso8601String(),
-  };
+        'message': message,
+        'code': code,
+        'retryable': retryable,
+        'debugInfo': debugInfo,
+        'timestamp': timestamp.toIso8601String(),
+      };
 }
 
 class ElevenLabsCallService {
-  static final ElevenLabsCallService _instance = ElevenLabsCallService._internal();
+  static final ElevenLabsCallService _instance =
+      ElevenLabsCallService._internal();
   static ElevenLabsCallService get instance => _instance;
 
-  static const _methodChannel = MethodChannel('com.yourapp.elevenlabs/conversation');
+  static const _methodChannel =
+      MethodChannel('com.yourapp.elevenlabs/conversation');
   static const _eventChannel = EventChannel('com.yourapp.elevenlabs/events');
 
   // Enhanced state management
@@ -155,29 +152,38 @@ class ElevenLabsCallService {
   String? get currentSessionId => _currentSessionId;
   String? get currentConversationId => _currentConversationId;
   ConversationState get conversationState => _conversationState;
-  Map<String, dynamic> get conversationMetadata => Map.from(_conversationMetadata);
+  Map<String, dynamic> get conversationMetadata =>
+      Map.from(_conversationMetadata);
   Duration? get connectionDuration => _connectionStartTime != null
       ? DateTime.now().difference(_connectionStartTime!)
       : null;
 
   // Stream getters
-  Stream<ConversationEvent> get conversationEvents => _conversationEventController.stream;
-  Stream<Map<String, dynamic>> get nativeEvents => _nativeEventController.stream;
+  Stream<ConversationEvent> get conversationEvents =>
+      _conversationEventController.stream;
+  Stream<Map<String, dynamic>> get nativeEvents =>
+      _nativeEventController.stream;
 
-  // Start conversation with ElevenLabs WebRTC
+  // Start conversation with ElevenLabs Official SDK
   Future<String> startConversation({
     required String conversationToken,
+    String? agentId,
     Map<String, String>? dynamicVariables,
   }) async {
     try {
-      print('[ElevenLabsService] 🚀 Starting conversation with token: ${conversationToken.substring(0, 20)}...');
+      print('[ElevenLabsService] 🚀 Starting conversation with official SDK');
+      print(
+          '[ElevenLabsService] 📋 Token: ${conversationToken.substring(0, 20)}...');
+      print('[ElevenLabsService] 📋 Agent ID: $agentId');
       print('[ElevenLabsService] 📋 Dynamic variables: $dynamicVariables');
 
       _conversationState = ConversationState.connecting;
       _connectionStartTime = DateTime.now();
 
-      final conversationId = await _methodChannel.invokeMethod<String>('startConversation', {
-        'token': conversationToken,
+      final conversationId =
+          await _methodChannel.invokeMethod<String>('startConversation', {
+        'conversationToken': conversationToken,
+        'agentId': agentId,
         'dynamicVariables': dynamicVariables ?? {},
       });
 
@@ -186,10 +192,12 @@ class ElevenLabsCallService {
         _conversationState = ConversationState.connected;
         _isCallActive = true;
 
-        print('[ElevenLabsService] ✅ Conversation started successfully: $conversationId');
+        print(
+            '[ElevenLabsService] ✅ Conversation started successfully: $conversationId');
         return conversationId;
       } else {
-        final errorMsg = 'Failed to start conversation - no ID returned from native bridge';
+        final errorMsg =
+            'Failed to start conversation - no ID returned from native bridge';
         print('[ElevenLabsService] ❌ $errorMsg');
         throw ConversationException(
           errorMsg,
@@ -200,14 +208,16 @@ class ElevenLabsCallService {
     } on PlatformException catch (e) {
       _conversationState = ConversationState.error;
       final errorMsg = _mapErrorCode(e.code);
-      print('[ElevenLabsService] ❌ Platform Exception: ${e.code} - ${e.message}');
+      print(
+          '[ElevenLabsService] ❌ Platform Exception: ${e.code} - ${e.message}');
       print('[ElevenLabsService] 🔍 Details: ${e.details}');
 
       throw ConversationException(
         errorMsg,
         code: e.code,
         retryable: _isRetryableError(e.code),
-        debugInfo: 'Platform: ${e.code}, Message: ${e.message}, Details: ${e.details}',
+        debugInfo:
+            'Platform: ${e.code}, Message: ${e.message}, Details: ${e.details}',
       );
     } catch (e) {
       _conversationState = ConversationState.error;
@@ -246,6 +256,54 @@ class ElevenLabsCallService {
         'message': message,
       });
       print('[ElevenLabsService] ✅ Message sent: $message');
+    } on PlatformException catch (e) {
+      throw ConversationException(_mapErrorCode(e.code), code: e.code);
+    }
+  }
+
+  // Set microphone muted state
+  Future<void> setMicrophoneMuted(bool muted) async {
+    try {
+      await _methodChannel.invokeMethod('setMicMuted', {
+        'muted': muted,
+      });
+      print(
+          '[ElevenLabsService] ${muted ? '🔇 Microphone muted' : '🎤 Microphone unmuted'}');
+    } on PlatformException catch (e) {
+      throw ConversationException(_mapErrorCode(e.code), code: e.code);
+    }
+  }
+
+  // Send feedback to conversation
+  Future<void> sendFeedback(bool isPositive) async {
+    try {
+      await _methodChannel.invokeMethod('sendFeedback', {
+        'isPositive': isPositive,
+      });
+      print(
+          '[ElevenLabsService] ✅ Feedback sent: ${isPositive ? "positive" : "negative"}');
+    } on PlatformException catch (e) {
+      throw ConversationException(_mapErrorCode(e.code), code: e.code);
+    }
+  }
+
+  // Send contextual update to conversation
+  Future<void> sendContextualUpdate(String update) async {
+    try {
+      await _methodChannel.invokeMethod('sendContextualUpdate', {
+        'update': update,
+      });
+      print('[ElevenLabsService] ✅ Contextual update sent: $update');
+    } on PlatformException catch (e) {
+      throw ConversationException(_mapErrorCode(e.code), code: e.code);
+    }
+  }
+
+  // Send user activity to conversation
+  Future<void> sendUserActivity() async {
+    try {
+      await _methodChannel.invokeMethod('sendUserActivity');
+      print('[ElevenLabsService] ✅ User activity sent');
     } on PlatformException catch (e) {
       throw ConversationException(_mapErrorCode(e.code), code: e.code);
     }
@@ -381,18 +439,22 @@ class ElevenLabsCallService {
 
       _logDebug('🔗 Requesting conversation token from Edge Function');
 
-      // Get conversation token from our device-specific edge function
+      // Get conversation token from our new ElevenLabs edge function
       final response = await http.post(
-        Uri.parse('${AppConstants.supabaseUrl}/functions/v1/elevenlabs-device-call'),
+        Uri.parse(
+            '${AppConstants.supabaseUrl}/functions/v1/elevenlabs-conversation-token'),
         headers: {
           'Content-Type': 'application/json',
           'apikey': AppConstants.supabaseAnonKey,
         },
         body: json.encode({
           'sessionId': sessionId,
-          'action': 'start',
           'pairingToken': pairingToken,
           'deviceToken': deviceToken,
+          'dynamicVariables': {
+            'call_type': 'in_app_call',
+            'device_call': 'true',
+          },
         }),
       );
 
@@ -405,11 +467,13 @@ class ElevenLabsCallService {
         final data = json.decode(response.body);
 
         if (data['conversationToken'] == null) {
-          _logDebug('❌ No conversation token in response', data: {'responseData': data});
+          _logDebug('❌ No conversation token in response',
+              data: {'responseData': data});
           throw ConversationException(
             'Failed to get conversation token from server',
             code: 'TOKEN_MISSING',
-            debugInfo: 'Edge Function returned success but no token: ${json.encode(data)}',
+            debugInfo:
+                'Edge Function returned success but no token: ${json.encode(data)}',
           );
         }
 
@@ -421,19 +485,21 @@ class ElevenLabsCallService {
 
         _currentSessionId = sessionId;
 
-        // Start ElevenLabs session via native SDK using new API
+        // Start ElevenLabs session via native SDK using official API
         final conversationId = await startConversation(
           conversationToken: data['conversationToken'],
+          agentId: data['agentId'], // Pass agent ID if available
           dynamicVariables: {
             'session_id': sessionId,
-            'secret__household_id': data['householdId'] ?? '',
-            'secret__relative_id': data['relativeId'] ?? '',
+            'household_id': data['householdId'] ?? '',
+            'relative_id': data['relativeId'] ?? '',
             'call_type': 'in_app_call',
             'device_call': 'true',
           },
         );
 
-        _logDebug('✅ Native conversation started', data: {'conversationId': conversationId});
+        _logDebug('✅ Native conversation started',
+            data: {'conversationId': conversationId});
 
         // Update call log with conversation ID if available
         if (data['callLogId'] != null) {
@@ -500,14 +566,16 @@ class ElevenLabsCallService {
   }
 
   // Update call log with conversation ID from ElevenLabs
-  Future<void> _updateCallLogWithConversationId(String callLogId, String conversationId, String sessionId) async {
+  Future<void> _updateCallLogWithConversationId(
+      String callLogId, String conversationId, String sessionId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final pairingToken = prefs.getString(AppConstants.keyPairingToken);
       final deviceToken = prefs.getString(AppConstants.keyDeviceToken);
 
       final response = await http.post(
-        Uri.parse('${AppConstants.supabaseUrl}/functions/v1/elevenlabs-device-call'),
+        Uri.parse(
+            '${AppConstants.supabaseUrl}/functions/v1/elevenlabs-device-call'),
         headers: {
           'Content-Type': 'application/json',
           'apikey': AppConstants.supabaseAnonKey,
@@ -533,7 +601,8 @@ class ElevenLabsCallService {
   }
 
   // End ElevenLabs WebRTC call
-  Future<bool> endElevenLabsCall(String sessionId, {
+  Future<bool> endElevenLabsCall(
+    String sessionId, {
     String? summary,
     int? duration,
   }) async {
@@ -550,7 +619,8 @@ class ElevenLabsCallService {
       final deviceToken = prefs.getString(AppConstants.keyDeviceToken);
 
       final response = await http.post(
-        Uri.parse('${AppConstants.supabaseUrl}/functions/v1/elevenlabs-device-call'),
+        Uri.parse(
+            '${AppConstants.supabaseUrl}/functions/v1/elevenlabs-device-call'),
         headers: {
           'Content-Type': 'application/json',
           'apikey': AppConstants.supabaseAnonKey,
@@ -598,16 +668,6 @@ class ElevenLabsCallService {
       print('✅ WebRTC resources cleaned up');
     } catch (e) {
       print('❌ Error cleaning up WebRTC resources: $e');
-    }
-  }
-
-  // Mute/unmute microphone for compatibility (if still needed)
-  Future<void> setMicrophoneMuted(bool muted) async {
-    try {
-      // This is for backward compatibility with existing call_screen.dart
-      print('${muted ? '🔇 Microphone muted' : '🎤 Microphone unmuted'} (managed by native SDK)');
-    } catch (e) {
-      print('❌ Error setting microphone state: $e');
     }
   }
 

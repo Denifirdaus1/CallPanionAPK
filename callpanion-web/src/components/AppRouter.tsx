@@ -51,7 +51,6 @@ const AppRouter = () => {
       <Route path="/legal/health-disclaimer" element={<HealthDisclaimer />} />
       <Route path="/legal/family-consent" element={<FamilyConsent />} />
       
-      {/* Elderly Device routes removed: native Flutter handles elderly UI */}
       
       {/* Protected routes */}
           <Route path="/dashboard" element={

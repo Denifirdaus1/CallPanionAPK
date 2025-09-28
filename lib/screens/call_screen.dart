@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import '../services/api_service.dart';
@@ -27,12 +28,74 @@ class _CallScreenState extends State<CallScreen> {
   int _callDuration = 0;
   late DateTime _callStartTime;
 
+  // ElevenLabs conversation state
+  String? _conversationId;
+  String? _lastMessage;
+  bool _isAgentSpeaking = false;
+  bool _canSendFeedback = false;
+  double _vadScore = 0.0;
+
+  // Event subscriptions
+  StreamSubscription<ConversationEvent>? _conversationEventSubscription;
+
   @override
   void initState() {
     super.initState();
     // The call is already accepted at this point, so we're connecting
     // Start connection immediately without delay
     _connectToCall();
+    _setupConversationEvents();
+  }
+
+  void _setupConversationEvents() {
+    _conversationEventSubscription =
+        ElevenLabsCallService.instance.conversationEvents.listen(
+      (ConversationEvent event) {
+        if (mounted) {
+          setState(() {
+            switch (event.type) {
+              case ConversationEventType.conversationConnected:
+                _conversationId = event.data['conversationId'] as String?;
+                break;
+              case ConversationEventType.conversationEvent:
+                if (event.data['type'] == 'message') {
+                  _lastMessage = event.data['message'] as String?;
+                  _isAgentSpeaking = event.data['source'] == 'agent';
+                } else if (event.data['type'] == 'feedbackAvailable') {
+                  _canSendFeedback = event.data['canSend'] as bool? ?? false;
+                } else if (event.data['type'] == 'vadScore') {
+                  _vadScore = (event.data['score'] as num?)?.toDouble() ?? 0.0;
+                }
+                break;
+              case ConversationEventType.conversationFailed:
+                _showErrorSnackBar(
+                    'Conversation failed: ${event.data['error']}');
+                break;
+              case ConversationEventType.conversationEnded:
+                _endCall();
+                break;
+              default:
+                break;
+            }
+          });
+        }
+      },
+      onError: (error) {
+        if (mounted) {
+          _showErrorSnackBar('Conversation error: $error');
+        }
+      },
+    );
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   void _connectToCall() async {
@@ -55,7 +118,8 @@ class _CallScreenState extends State<CallScreen> {
 
       // Try to start the connection immediately without retry logic for faster connection
       try {
-        final result = await ElevenLabsCallService.instance.startElevenLabsCall(widget.sessionId);
+        final result = await ElevenLabsCallService.instance
+            .startElevenLabsCall(widget.sessionId);
         if (kDebugMode) {
           print('🎙️ ElevenLabs WebRTC started: ${result != null}');
         }
@@ -63,7 +127,7 @@ class _CallScreenState extends State<CallScreen> {
         if (kDebugMode) {
           print('❌ Error starting ElevenLabs call: $e');
         }
-        
+
         // Try once more with retry logic if first attempt fails
         await _startElevenLabsWithRetry();
       }
@@ -85,7 +149,8 @@ class _CallScreenState extends State<CallScreen> {
           print('🎙️ ElevenLabs connection attempt $attempts/$maxAttempts');
         }
 
-        final result = await ElevenLabsCallService.instance.startElevenLabsCall(widget.sessionId);
+        final result = await ElevenLabsCallService.instance
+            .startElevenLabsCall(widget.sessionId);
         if (kDebugMode) {
           print('🎙️ ElevenLabs WebRTC started: ${result != null}');
         }
@@ -185,6 +250,9 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    // Cancel event subscription
+    _conversationEventSubscription?.cancel();
+
     // Ensure call cleanup when screen is disposed
     if (_isCallActive) {
       _endCall();
@@ -204,6 +272,74 @@ class _CallScreenState extends State<CallScreen> {
 
     if (kDebugMode) {
       print('🔇 Mute toggled: $_isMuted');
+    }
+  }
+
+  void _sendFeedback(bool isPositive) async {
+    try {
+      await ElevenLabsCallService.instance.sendFeedback(isPositive);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Feedback sent: ${isPositive ? "👍" : "👎"}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showErrorSnackBar('Failed to send feedback: $e');
+      }
+    }
+  }
+
+  void _sendContextualUpdate() async {
+    // Show dialog to get contextual update from user
+    final TextEditingController controller = TextEditingController();
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Send Contextual Update'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Enter additional context for the AI...',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && result.isNotEmpty) {
+      try {
+        await ElevenLabsCallService.instance.sendContextualUpdate(result);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Contextual update sent'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          _showErrorSnackBar('Failed to send contextual update: $e');
+        }
+      }
     }
   }
 
@@ -273,11 +409,69 @@ class _CallScreenState extends State<CallScreen> {
                     ),
                   ),
 
+                  // Conversation status
+                  if (_conversationId != null) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'AI Connected',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF10B981),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  // Last message from AI
+                  if (_lastMessage != null && _isAgentSpeaking) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF374151).withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFF10B981).withOpacity(0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.smart_toy,
+                            size: 16,
+                            color: Color(0xFF10B981),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _lastMessage!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFFE5E7EB),
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(height: 16),
 
                   // Call type indicator
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: const Color(0xFF10B981).withOpacity(0.2),
                       borderRadius: BorderRadius.circular(20),
@@ -303,21 +497,32 @@ class _CallScreenState extends State<CallScreen> {
               if (_isCallActive)
                 Column(
                   children: [
-                    // Audio wave animation (placeholder)
+                    // Audio wave animation based on VAD score
                     Container(
                       height: 80,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: List.generate(5, (index) {
+                          final baseHeight = 10.0;
+                          final maxHeight = 40.0;
+                          final vadMultiplier = _vadScore.clamp(0.0, 1.0);
+                          final height = _isCallActive
+                              ? baseHeight +
+                                  (maxHeight - baseHeight) *
+                                      vadMultiplier *
+                                      (0.5 + (index * 0.1))
+                              : baseHeight;
+
                           return AnimatedContainer(
-                            duration: Duration(milliseconds: 300 + (index * 100)),
+                            duration:
+                                Duration(milliseconds: 200 + (index * 50)),
                             width: 4,
-                            height: _isCallActive
-                                ? 20 + (index * 10).toDouble()
-                                : 10,
+                            height: height,
                             margin: const EdgeInsets.symmetric(horizontal: 2),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF2563EB),
+                              color: _isMuted
+                                  ? const Color(0xFFF59E0B)
+                                  : const Color(0xFF2563EB),
                               borderRadius: BorderRadius.circular(2),
                             ),
                           );
@@ -382,11 +587,9 @@ class _CallScreenState extends State<CallScreen> {
                         ),
                       ),
 
-                      // Speaker button (placeholder)
+                      // Contextual update button
                       GestureDetector(
-                        onTap: () {
-                          // Toggle speaker
-                        },
+                        onTap: _sendContextualUpdate,
                         child: Container(
                           width: 64,
                           height: 64,
@@ -395,7 +598,7 @@ class _CallScreenState extends State<CallScreen> {
                             borderRadius: BorderRadius.circular(32),
                           ),
                           child: const Icon(
-                            Icons.volume_up,
+                            Icons.edit_note,
                             size: 28,
                             color: Colors.white,
                           ),
@@ -404,7 +607,84 @@ class _CallScreenState extends State<CallScreen> {
                     ],
                   ),
 
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 16),
+
+                  // Feedback buttons (only show when feedback is available)
+                  if (_canSendFeedback) ...[
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        GestureDetector(
+                          onTap: () => _sendFeedback(false),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: const Color(0xFFEF4444).withOpacity(0.3),
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.thumb_down,
+                                  size: 16,
+                                  color: Color(0xFFEF4444),
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Negative',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFFEF4444),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        GestureDetector(
+                          onTap: () => _sendFeedback(true),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: const Color(0xFF10B981).withOpacity(0.3),
+                              ),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.thumb_up,
+                                  size: 16,
+                                  color: Color(0xFF10B981),
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Positive',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF10B981),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
                   // Call info
                   Container(
@@ -413,20 +693,25 @@ class _CallScreenState extends State<CallScreen> {
                       color: const Color(0xFF374151).withOpacity(0.3),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.info_outline,
                           size: 16,
                           color: Color(0xFF94A3B8),
                         ),
-                        SizedBox(width: 8),
-                        Text(
-                          'AI companion is analyzing your conversation',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF94A3B8),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _isAgentSpeaking
+                                ? 'AI is speaking...'
+                                : 'AI companion is listening to your conversation',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF94A3B8),
+                            ),
+                            textAlign: TextAlign.center,
                           ),
                         ),
                       ],
