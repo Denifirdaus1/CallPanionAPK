@@ -170,6 +170,7 @@ class ElevenLabsCallService {
     required String conversationToken,
     String? agentId,
     Map<String, String>? dynamicVariables,
+    String? callLogId,
   }) async {
     try {
       print('[ElevenLabsService] 🚀 Starting conversation with official SDK');
@@ -177,15 +178,22 @@ class ElevenLabsCallService {
           '[ElevenLabsService] 📋 Token: ${conversationToken.substring(0, 20)}...');
       print('[ElevenLabsService] 📋 Agent ID: $agentId');
       print('[ElevenLabsService] 📋 Dynamic variables: $dynamicVariables');
+      print('[ElevenLabsService] 📋 Call Log ID: $callLogId');
 
       _conversationState = ConversationState.connecting;
       _connectionStartTime = DateTime.now();
+
+      // Store callLogId in metadata for later use
+      if (callLogId != null) {
+        _conversationMetadata['callLogId'] = callLogId;
+      }
 
       final conversationId =
           await _methodChannel.invokeMethod<String>('startConversation', {
         'conversationToken': conversationToken,
         'agentId': agentId,
         'dynamicVariables': dynamicVariables ?? {},
+        'callLogId': callLogId,
       });
 
       if (conversationId != null) {
@@ -310,6 +318,109 @@ class ElevenLabsCallService {
     }
   }
 
+  // Update conversation ID on server
+  Future<void> updateConversationId(
+      String callLogId, String conversationId) async {
+    try {
+      // Call Edge Function to update conversation ID
+      final response =
+          await supabase.functions.invoke('elevenlabs-device-call', body: {
+        'action': 'update_conversation_id',
+        'callLogId': callLogId,
+        'conversationId': conversationId,
+      });
+
+      if (response.data != null) {
+        print(
+            '[ElevenLabsService] ✅ Conversation ID updated on server: $conversationId');
+      } else {
+        print(
+            '[ElevenLabsService] ⚠️ Server update response: ${response.data}');
+      }
+    } catch (e) {
+      print(
+          '[ElevenLabsService] ❌ Failed to update conversation ID on server: $e');
+      // Don't throw error - this is not critical for conversation flow
+    }
+  }
+
+  // Get conversation token with retry mechanism for expired tokens
+  Future<http.Response> _getConversationTokenWithRetry({
+    required String sessionId,
+    required String pairingToken,
+    required String deviceToken,
+    int maxRetries = 3,
+  }) async {
+    int attempt = 0;
+    Exception? lastException;
+
+    while (attempt < maxRetries) {
+      try {
+        attempt++;
+        _logDebug(
+            '🔗 Requesting conversation token (attempt $attempt/$maxRetries)');
+
+        // Get current user session for auth
+        final session = await supabase.auth.currentSession;
+        if (session?.accessToken == null) {
+          throw ConversationException(
+            'User not authenticated. Please log in again.',
+            code: 'AUTH_REQUIRED',
+            debugInfo: 'No valid session found',
+          );
+        }
+
+        final response = await http.post(
+          Uri.parse(
+              '${AppConstants.supabaseUrl}/functions/v1/elevenlabs-conversation-token'),
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': AppConstants.supabaseAnonKey,
+            'Authorization': 'Bearer ${session.accessToken}',
+          },
+          body: json.encode({
+            'sessionId': sessionId,
+            'pairingToken': pairingToken,
+            'deviceToken': deviceToken,
+            'dynamicVariables': {
+              'call_type': 'in_app_call',
+              'device_call': 'true',
+            },
+          }),
+        );
+
+        // Check for token expiry or auth errors
+        if (response.statusCode == 401 || response.statusCode == 403) {
+          _logDebug(
+              '⚠️ Token expired or auth error (${response.statusCode}), retrying...');
+          if (attempt < maxRetries) {
+            await Future.delayed(
+                Duration(seconds: attempt * 2)); // Exponential backoff
+            continue;
+          }
+        }
+
+        // Success or non-retryable error
+        return response;
+      } catch (e) {
+        lastException = e is Exception ? e : Exception(e.toString());
+        _logDebug('❌ Token request failed (attempt $attempt/$maxRetries): $e');
+
+        if (attempt < maxRetries) {
+          await Future.delayed(
+              Duration(seconds: attempt * 2)); // Exponential backoff
+        }
+      }
+    }
+
+    // All retries failed
+    throw ConversationException(
+      'Failed to get conversation token after $maxRetries attempts',
+      code: 'TOKEN_RETRY_FAILED',
+      debugInfo: 'Last error: ${lastException?.toString()}',
+    );
+  }
+
   // Map error codes to user-friendly messages
   String _mapErrorCode(String code) {
     switch (code) {
@@ -333,6 +444,12 @@ class ElevenLabsCallService {
         return 'Audio session configuration failed';
       case 'NO_CONVERSATION_ID':
         return 'Failed to get conversation ID from native SDK';
+      case 'AUTH_REQUIRED':
+        return 'Authentication required';
+      case 'TOKEN_RETRY_FAILED':
+        return 'Failed to get conversation token after multiple attempts';
+      case 'CONCURRENT_CALL_LIMIT':
+        return 'Too many concurrent calls. Please wait before starting another call.';
       default:
         return 'Unknown error occurred: $code';
     }
@@ -385,6 +502,13 @@ class ElevenLabsCallService {
         _conversationState = ConversationState.connected;
         _currentConversationId = event.data['conversationId'] as String?;
         _conversationMetadata.addAll(event.data);
+
+        // Update conversation ID on server if we have callLogId
+        if (_currentConversationId != null &&
+            _conversationMetadata.containsKey('callLogId')) {
+          final callLogId = _conversationMetadata['callLogId'] as String;
+          updateConversationId(callLogId, _currentConversationId!);
+        }
         break;
 
       case ConversationEventType.conversationFailed:
@@ -438,25 +562,11 @@ class ElevenLabsCallService {
         );
       }
 
-      _logDebug('🔗 Requesting conversation token from Edge Function');
-
-      // Get conversation token from our new ElevenLabs edge function
-      final response = await http.post(
-        Uri.parse(
-            '${AppConstants.supabaseUrl}/functions/v1/elevenlabs-conversation-token'),
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': AppConstants.supabaseAnonKey,
-        },
-        body: json.encode({
-          'sessionId': sessionId,
-          'pairingToken': pairingToken,
-          'deviceToken': deviceToken,
-          'dynamicVariables': {
-            'call_type': 'in_app_call',
-            'device_call': 'true',
-          },
-        }),
+      // Get conversation token with retry mechanism
+      final response = await _getConversationTokenWithRetry(
+        sessionId: sessionId,
+        pairingToken: pairingToken,
+        deviceToken: deviceToken,
       );
 
       _logDebug('📡 Edge Function response', data: {
@@ -490,6 +600,7 @@ class ElevenLabsCallService {
         final conversationId = await startConversation(
           conversationToken: data['conversationToken'],
           agentId: data['agentId'], // Pass agent ID if available
+          callLogId: data['callLogId'], // Pass call log ID for server update
           dynamicVariables: {
             'session_id': sessionId,
             'household_id': data['householdId'] ?? '',

@@ -119,50 +119,16 @@ serve(async (req) => {
           console.error('Failed to create call log:', logError);
         }
 
-        // Request conversation token from ElevenLabs
+        // Request conversation token from ElevenLabs using the correct API
         console.log('Requesting conversation token from ElevenLabs...');
         console.log('Agent ID:', ELEVEN_AGENT_ID_IN_APP);
         
-        const conversationResponse = await fetch('https://api.elevenlabs.io/v1/conversations/webrtc', {
-          method: 'POST',
+        const conversationResponse = await fetch(`https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${ELEVEN_AGENT_ID_IN_APP}`, {
+          method: 'GET',
           headers: {
             'xi-api-key': ELEVENLABS_API_KEY,
             'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            agent_id: ELEVEN_AGENT_ID_IN_APP,
-            custom_voice_id: null, // Use agent's default voice
-            custom_llm_extra_body: {
-              // Pass context variables that the agent can use
-              variables: {
-                relative_name: relative.first_name || 'friend',
-                relative_full_name: `${relative.first_name} ${relative.last_name}`,
-                relative_location: `${relative.town}, ${relative.country}`,
-                family_name: household?.family_name || 'your family',
-                household_id: householdId,
-                relative_id: relativeId,
-                session_id: body.sessionId,
-                call_type: 'in_app_call',
-                device_call: 'true'
-              }
-            },
-            // Post-call webhook configuration
-            webhook_url: `${Deno.env.get('SUPABASE_URL')}/functions/v1/elevenlabs-webhook`,
-            webhook_secret: Deno.env.get('ELEVENLABS_WEBHOOK_SECRET'),
-            // Additional metadata for webhook processing
-            metadata: {
-              household_id: householdId,
-              relative_id: relativeId,
-              session_id: body.sessionId,
-              call_log_id: callLog?.id,
-              call_type: 'in_app_call',
-              device_initiated: 'true',
-              relative_name: relative.first_name,
-              family_name: household?.family_name,
-              // Add timestamp for debugging
-              created_at: new Date().toISOString()
-            }
-          })
+          }
         });
 
         if (!conversationResponse.ok) {
@@ -198,8 +164,8 @@ serve(async (req) => {
 
         return new Response(
           JSON.stringify({
-            conversationToken: conversationData.conversation_token,
-            conversationId: conversationData.conversation_id,
+            conversationToken: conversationData.token,
+            conversationId: null, // will be updated by client after onConnect()
             callLogId: callLog?.id,
             householdId: householdId,
             relativeId: relativeId,

@@ -87,6 +87,7 @@ class ElevenLabsBridge(
                 "sendFeedback" -> handleSendFeedback(call, result)
                 "sendContextualUpdate" -> handleSendContextualUpdate(call, result)
                 "sendUserActivity" -> handleSendUserActivity(result)
+                "updateConversationId" -> handleUpdateConversationId(call, result)
                 "getConversationState" -> {
                     result.success(mapOf(
                         "state" to conversationState.name.lowercase(),
@@ -117,6 +118,7 @@ class ElevenLabsBridge(
         val conversationToken = call.argument<String>("conversationToken")
         val agentId = call.argument<String>("agentId")
         val dynamicVariables = call.argument<Map<String, String>>("dynamicVariables") ?: emptyMap()
+        val callLogId = call.argument<String>("callLogId")
 
         // Validation
         if (conversationToken == null && agentId == null) {
@@ -131,9 +133,15 @@ class ElevenLabsBridge(
 
         Log.d(TAG, "🚀 Starting ElevenLabs conversation with official SDK")
         Log.d(TAG, "📋 Dynamic variables: $dynamicVariables")
+        Log.d(TAG, "📋 Call Log ID: $callLogId")
 
         conversationState = ConversationState.CONNECTING
         connectionStartTime = System.currentTimeMillis()
+        
+        // Store callLogId in metadata for later use
+        if (callLogId != null) {
+            conversationMetadata["callLogId"] = callLogId
+        }
 
         scope.launch {
             try {
@@ -156,18 +164,21 @@ class ElevenLabsBridge(
                     dynamicVariables = dynamicVariables,
                     onConnect = { conversationId ->
                         Log.d(TAG, "✅ Conversation connected: $conversationId")
-                        conversationState = ConversationState.CONNECTED
-                        conversationMetadata["conversationId"] = conversationId
-                        conversationMetadata["startTime"] = connectionStartTime
+                            conversationState = ConversationState.CONNECTED
+                            conversationMetadata["conversationId"] = conversationId
+                            conversationMetadata["startTime"] = connectionStartTime
                         
-                        sendEvent("conversationConnected", mapOf(
-                            "conversationId" to conversationId,
-                            "timestamp" to System.currentTimeMillis()
-                        ))
-                        
-                        Handler(Looper.getMainLooper()).post {
-                            result.success(conversationId)
-                        }
+                        // Update server with conversation ID
+                        updateConversationIdOnServer(conversationId)
+                            
+                            sendEvent("conversationConnected", mapOf(
+                                "conversationId" to conversationId,
+                                "timestamp" to System.currentTimeMillis()
+                            ))
+                            
+                            Handler(Looper.getMainLooper()).post {
+                                result.success(conversationId)
+                            }
                     },
                     onMessage = { source, message ->
                         Log.d(TAG, "💬 Message from $source: $message")
@@ -300,9 +311,9 @@ class ElevenLabsBridge(
         scope.launch {
             try {
                 conversationSession?.setMicMuted(muted)
-                sendEvent("microphoneStateChanged", mapOf("muted" to muted))
+        sendEvent("microphoneStateChanged", mapOf("muted" to muted))
                 withContext(Dispatchers.Main) {
-                    result.success(mapOf("muted" to muted))
+        result.success(mapOf("muted" to muted))
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Error setting microphone mute: ${e.message}")
@@ -399,6 +410,46 @@ class ElevenLabsBridge(
         }
     }
 
+    private fun updateConversationIdOnServer(conversationId: String) {
+        scope.launch {
+            try {
+                Log.d(TAG, "🔄 Updating conversation ID on server: $conversationId")
+                
+                // Get call log ID from conversation metadata
+                val callLogId = conversationMetadata["callLogId"] as? String
+                
+                if (callLogId != null) {
+                    // Call the update_conversation_id action
+                    val result = methodChannel.invokeMethod("updateConversationId", mapOf(
+                        "callLogId" to callLogId,
+                        "conversationId" to conversationId
+                    ))
+                    
+                    Log.d(TAG, "✅ Conversation ID updated on server: $result")
+                } else {
+                    Log.w(TAG, "⚠️ No callLogId found, skipping server update")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Failed to update conversation ID on server: ${e.message}")
+            }
+        }
+    }
+
+    private fun handleUpdateConversationId(call: MethodCall, result: MethodChannel.Result) {
+        val callLogId = call.argument<String>("callLogId")
+        val conversationId = call.argument<String>("conversationId")
+        
+        if (callLogId == null || conversationId == null) {
+            result.error("INVALID_ARGUMENT", "callLogId and conversationId are required", null)
+            return
+        }
+        
+        Log.d(TAG, "🔄 Updating conversation ID: $conversationId for call log: $callLogId")
+        
+        // This will be handled by Flutter service to call the Edge Function
+        result.success(true)
+    }
+
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         Log.d(TAG, "📺 Event stream listener attached")
         eventSink = events
@@ -411,7 +462,13 @@ class ElevenLabsBridge(
 
     fun dispose() {
         Log.d(TAG, "🧹 Disposing ElevenLabsBridge")
-        conversationSession?.endSession()
+        scope.launch {
+            try {
+                conversationSession?.endSession()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error ending session during dispose: ${e.message}")
+            }
+        }
         conversationSession = null
         scope.cancel()
         audioManager?.mode = AudioManager.MODE_NORMAL

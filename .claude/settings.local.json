@@ -14,7 +14,14 @@
       "Bash(npm install:*)",
       "Bash(curl:*)",
       "Bash(npx supabase:*)",
-      "Bash(claude config list)"
+      "Bash(claude config list)",
+      "Bash(claude mcp add:*)",
+      "Bash(setx:*)",
+      "mcp__jina-mcp__search_web",
+      "Bash(claude mcp:*)",
+      "Bash(npx tavily-mcp:*)",
+      "mcp__jina-mcp__read_url",
+      "Read(//c/Official Elevenlabs SDK/elevenlabs-android/**)"
     ],
     "deny": [],
     "ask": []

@@ -36,8 +36,8 @@ void main() async {
   // Initialize FCM service
   await FCMService.instance.initialize();
 
-  // Initialize ElevenLabs service
-  await ElevenLabsCallService.instance.initialize();
+  // ElevenLabs service is auto-initialized (singleton pattern)
+  // No explicit initialize() method needed
 
   runApp(const CallPanionElderlyApp());
 }
