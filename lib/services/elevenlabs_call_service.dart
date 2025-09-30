@@ -4,7 +4,6 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/call_data.dart';
 import '../utils/constants.dart';
 
 // Enhanced enums and models
@@ -323,19 +322,26 @@ class ElevenLabsCallService {
       String callLogId, String conversationId) async {
     try {
       // Call Edge Function to update conversation ID
-      final response =
-          await supabase.functions.invoke('elevenlabs-device-call', body: {
-        'action': 'update_conversation_id',
-        'callLogId': callLogId,
-        'conversationId': conversationId,
-      });
+      final response = await http.post(
+        Uri.parse(
+            '${AppConstants.supabaseUrl}/functions/v1/elevenlabs-device-call'),
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': AppConstants.supabaseAnonKey,
+        },
+        body: json.encode({
+          'action': 'update_conversation_id',
+          'callLogId': callLogId,
+          'conversationId': conversationId,
+        }),
+      );
 
-      if (response.data != null) {
+      if (response.statusCode == 200) {
         print(
             '[ElevenLabsService] ✅ Conversation ID updated on server: $conversationId');
       } else {
         print(
-            '[ElevenLabsService] ⚠️ Server update response: ${response.data}');
+            '[ElevenLabsService] ⚠️ Server update response: ${response.statusCode}');
       }
     } catch (e) {
       print(
@@ -361,12 +367,15 @@ class ElevenLabsCallService {
             '🔗 Requesting conversation token (attempt $attempt/$maxRetries)');
 
         // Get current user session for auth
-        final session = await supabase.auth.currentSession;
-        if (session?.accessToken == null) {
+        final prefs = await SharedPreferences.getInstance();
+        final pairingToken = prefs.getString(AppConstants.keyPairingToken);
+        final deviceToken = prefs.getString(AppConstants.keyDeviceToken);
+
+        if (pairingToken == null || deviceToken == null) {
           throw ConversationException(
             'User not authenticated. Please log in again.',
             code: 'AUTH_REQUIRED',
-            debugInfo: 'No valid session found',
+            debugInfo: 'No valid pairing or device token found',
           );
         }
 
@@ -376,7 +385,6 @@ class ElevenLabsCallService {
           headers: {
             'Content-Type': 'application/json',
             'apikey': AppConstants.supabaseAnonKey,
-            'Authorization': 'Bearer ${session.accessToken}',
           },
           body: json.encode({
             'sessionId': sessionId,
