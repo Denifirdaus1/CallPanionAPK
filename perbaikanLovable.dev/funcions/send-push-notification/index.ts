@@ -356,7 +356,7 @@ serve(async (req) => {
           user_id: tokenRecord.user_id,
           platform: tokenRecord.platform,
           success: false,
-          error: error.message
+          error: error instanceof Error ? error.message : 'Unknown error'
         });
 
         console.error(`Error sending push notification to user ${tokenRecord.user_id}:`, error);

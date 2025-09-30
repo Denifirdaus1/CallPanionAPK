@@ -11,7 +11,6 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.withReader('UTF-8') { reader ->
         localProperties.load(reader)
     }
-
 }
 
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
