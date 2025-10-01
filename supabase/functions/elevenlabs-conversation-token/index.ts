@@ -24,28 +24,6 @@ serve(async (req) => {
 
   try {
     const supabase = serviceClient();
-    
-    // Rate limiting and auth validation
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Authorization header required' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Validate user session
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      console.error('Auth validation failed:', authError);
-      return new Response(
-        JSON.stringify({ error: 'Invalid or expired token' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const body: ConversationTokenRequest = await req.json();
 
     console.log('=== elevenlabs-conversation-token triggered ===');
@@ -56,7 +34,7 @@ serve(async (req) => {
     const { data: devicePair, error: pairError } = await supabase
       .from('device_pairs')
       .select('household_id, relative_id, device_info')
-      .eq('pairing_token', body.pairingToken)
+      .eq('pair_token', body.pairingToken)
       .not('claimed_at', 'is', null)
       .single();
 
@@ -118,24 +96,42 @@ serve(async (req) => {
       .eq('id', householdId)
       .single();
 
-    // Create conversation session in database
-    const { data: session, error: sessionError } = await supabase
+    // Check if session already exists, if so, just return existing session
+    const now = new Date().toISOString();
+    let session;
+    
+    const { data: existingSession } = await supabase
       .from('call_sessions')
-      .insert({
-        id: body.sessionId,
-        household_id: householdId,
-        relative_id: relativeId,
-        status: 'connecting',
-        provider: 'elevenlabs',
-        call_type: 'in_app_call',
-        created_at: new Date().toISOString()
-      })
       .select()
+      .eq('id', body.sessionId)
       .single();
+    
+    if (existingSession) {
+      console.log('Session already exists, using existing:', body.sessionId);
+      session = existingSession;
+    } else {
+      // Create new conversation session
+      const { data: newSession, error: sessionError } = await supabase
+        .from('call_sessions')
+        .insert({
+          id: body.sessionId,
+          household_id: householdId,
+          relative_id: relativeId,
+          status: 'connecting',
+          provider: 'elevenlabs',
+          call_type: 'in_app_call',
+          scheduled_time: now,
+          created_at: now
+        })
+        .select()
+        .single();
 
-    if (sessionError) {
-      throw new Error(`Failed to create call session: ${sessionError.message}`);
+      if (sessionError) {
+        throw new Error(`Failed to create call session: ${sessionError.message}`);
+      }
+      session = newSession;
     }
+
 
     // Create initial call log
     const { data: callLog, error: logError } = await supabase

@@ -37,7 +37,7 @@ serve(async (req) => {
     const { data: devicePair, error: pairError } = await supabase
       .from('device_pairs')
       .select('household_id, relative_id, device_info')
-      .eq('pairing_token', body.pairingToken)
+      .eq('pair_token', body.pairingToken)
       .not('claimed_at', 'is', null)
       .single();
 
@@ -80,23 +80,40 @@ serve(async (req) => {
           .eq('id', householdId)
           .single();
 
-        // Create conversation session in database
-        const { data: session, error: sessionError } = await supabase
+        // Check if session already exists
+        const now = new Date().toISOString();
+        let session;
+        
+        const { data: existingSession } = await supabase
           .from('call_sessions')
-          .insert({
-            id: body.sessionId,
-            household_id: householdId,
-            relative_id: relativeId,
-            status: 'connecting',
-            provider: 'webrtc',
-            call_type: 'in_app_call',
-            created_at: new Date().toISOString()
-          })
           .select()
+          .eq('id', body.sessionId)
           .single();
+        
+        if (existingSession) {
+          console.log('Session already exists, using existing:', body.sessionId);
+          session = existingSession;
+        } else {
+          // Create new session
+          const { data: newSession, error: sessionError } = await supabase
+            .from('call_sessions')
+            .insert({
+              id: body.sessionId,
+              household_id: householdId,
+              relative_id: relativeId,
+              status: 'connecting',
+              provider: 'webrtc',
+              call_type: 'in_app_call',
+              scheduled_time: now,
+              created_at: now
+            })
+            .select()
+            .single();
 
-        if (sessionError) {
-          throw new Error(`Failed to create call session: ${sessionError.message}`);
+          if (sessionError) {
+            throw new Error(`Failed to create call session: ${sessionError.message}`);
+          }
+          session = newSession;
         }
 
         // Create initial call log
@@ -179,13 +196,13 @@ serve(async (req) => {
       }
 
       case 'end': {
-        // Update call session status
+        // Update call session status - use duration_seconds not duration
         const { error: sessionUpdateError } = await supabase
           .from('call_sessions')
           .update({
             status: 'completed',
             ended_at: new Date().toISOString(),
-            duration: body.duration || 0,
+            duration_seconds: body.duration || 0,
             updated_at: new Date().toISOString()
           })
           .eq('id', body.sessionId);
@@ -194,12 +211,12 @@ serve(async (req) => {
           console.error('Failed to update call session:', sessionUpdateError);
         }
 
-        // Update call log
+        // Update call log - use call_duration not duration
         await supabase
           .from('call_logs')
           .update({
             call_outcome: body.outcome || 'completed',
-            duration: body.duration,
+            call_duration: body.duration,
             conversation_summary: body.conversationSummary,
             updated_at: new Date().toISOString()
           })

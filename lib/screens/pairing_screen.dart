@@ -25,7 +25,7 @@ class _PairingScreenState extends State<PairingScreen> {
 
   Future<void> _submitPairingCode() async {
     final code = _codeController.text.trim();
-
+    
     if (code.isEmpty) {
       setState(() {
         _errorMessage = 'Please enter a pairing code';
@@ -47,7 +47,7 @@ class _PairingScreenState extends State<PairingScreen> {
 
     try {
       final result = await ApiService.instance.claimPairingCode(code);
-
+      
       if (result['success'] == true) {
         // Save pairing data
         final prefs = await SharedPreferences.getInstance();
@@ -55,7 +55,7 @@ class _PairingScreenState extends State<PairingScreen> {
         await prefs.setString(AppConstants.keyRelativeName, result['relative_name'] ?? '');
         await prefs.setString(AppConstants.keyHouseholdId, result['household_id'] ?? '');
         await prefs.setString(AppConstants.keyRelativeId, result['relative_id'] ?? '');
-
+        
         // Re-register FCM token so backend links this device to the paired user
         try {
           final fcmSuccess = await FCMService.instance.registerToken();
@@ -67,7 +67,7 @@ class _PairingScreenState extends State<PairingScreen> {
             print('❌ Error re-registering FCM token after pairing: $e');
           }
         }
-
+        
         // Navigate back to main screen
         if (mounted) {
           Navigator.of(context).pop(true); // Return true to indicate success
@@ -120,9 +120,9 @@ class _PairingScreenState extends State<PairingScreen> {
                 color: Colors.white,
               ),
             ),
-
+            
             const SizedBox(height: 32),
-
+            
             // Title
             const Text(
               'Connect to Your Family',
@@ -133,9 +133,9 @@ class _PairingScreenState extends State<PairingScreen> {
               ),
               textAlign: TextAlign.center,
             ),
-
+            
             const SizedBox(height: 16),
-
+            
             // Description
             const Text(
               'Enter the 6-digit code provided by your family to connect this device',
@@ -145,9 +145,9 @@ class _PairingScreenState extends State<PairingScreen> {
               ),
               textAlign: TextAlign.center,
             ),
-
+            
             const SizedBox(height: 48),
-
+            
             // Pairing code input
             Container(
               decoration: BoxDecoration(
@@ -199,7 +199,7 @@ class _PairingScreenState extends State<PairingScreen> {
                 },
               ),
             ),
-
+            
             if (_errorMessage != null) ...[
               const SizedBox(height: 16),
               Container(
@@ -223,9 +223,9 @@ class _PairingScreenState extends State<PairingScreen> {
                 ),
               ),
             ],
-
+            
             const SizedBox(height: 32),
-
+            
             // Submit button
             SizedBox(
               height: 56,
@@ -241,25 +241,25 @@ class _PairingScreenState extends State<PairingScreen> {
                 ),
                 child: _isLoading
                     ? const SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
                     : const Text(
-                  'Connect Device',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                        'Connect Device',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
               ),
             ),
-
+            
             const SizedBox(height: 24),
-
+            
             // Help text
             Container(
               padding: const EdgeInsets.all(16),
@@ -290,8 +290,8 @@ class _PairingScreenState extends State<PairingScreen> {
                   const SizedBox(height: 8),
                   const Text(
                     '• Ask your family member to generate a pairing code\n'
-                        '• The code is 6 digits and expires after 10 minutes\n'
-                        '• Make sure your device is connected to the internet',
+                    '• The code is 6 digits and expires after 10 minutes\n'
+                    '• Make sure your device is connected to the internet',
                     style: TextStyle(
                       color: Color(0xFF6B7280),
                       fontSize: 14,

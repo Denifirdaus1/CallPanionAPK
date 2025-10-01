@@ -29,7 +29,17 @@ class ConversationEvent {
     required this.timestamp,
   });
 
-  factory ConversationEvent.fromEventChannel(Map<String, dynamic> eventData) {
+  factory ConversationEvent.fromEventChannel(dynamic rawData) {
+    // Safely convert to Map<String, dynamic>
+    final Map<String, dynamic> eventData;
+    if (rawData is Map<String, dynamic>) {
+      eventData = rawData;
+    } else if (rawData is Map) {
+      eventData = Map<String, dynamic>.from(rawData);
+    } else {
+      throw ArgumentError('Invalid event data type: ${rawData.runtimeType}');
+    }
+    
     final eventType = eventData['type'] as String;
     final data = eventData['data'] as Map<String, dynamic>? ?? {};
     final timestamp = DateTime.fromMillisecondsSinceEpoch(
@@ -385,6 +395,7 @@ class ElevenLabsCallService {
           headers: {
             'Content-Type': 'application/json',
             'apikey': AppConstants.supabaseAnonKey,
+            'Authorization': 'Bearer ${AppConstants.supabaseAnonKey}',
           },
           body: json.encode({
             'sessionId': sessionId,
