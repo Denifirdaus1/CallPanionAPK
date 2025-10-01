@@ -84,16 +84,12 @@ class AppLifecycleService {
       relativeId: data['relativeId']?.toString() ?? '',
     );
 
-    if (_isAppInForeground) {
-      // App is in foreground, trigger immediate navigation
-      if (onPendingCallResume != null) {
-        onPendingCallResume!(callData);
-      }
-    } else {
-      // Store for when app resumes
-      _pendingCall = callData;
-      await _storePendingCall(callData);
-    }
+    // Always store the call data for proper handling
+    _pendingCall = callData;
+    await _storePendingCall(callData);
+
+    // Note: Navigation is now handled in main.dart to ensure direct navigation
+    // This prevents conflicts and ensures calls go directly to CallScreen
   }
 
   Future<void> _checkForPendingCall() async {
@@ -105,13 +101,14 @@ class AppLifecycleService {
         // Clear stored pending call
         await prefs.remove(AppConstants.keyPendingCall);
 
-        // Parse and trigger call navigation
+        // Parse call data
         final data = CallData.fromJsonString(pendingCallData);
-        if (data != null && onPendingCallResume != null) {
+        if (data != null) {
           if (kDebugMode) {
-            print('📞 Resuming pending call: ${data.sessionId}');
+            print('📞 Found pending call: ${data.sessionId}');
           }
-          onPendingCallResume!(data);
+          // Note: Navigation is now handled in main.dart to ensure direct navigation
+          // This prevents conflicts and ensures calls go directly to CallScreen
         }
       }
     } catch (e) {
@@ -124,7 +121,8 @@ class AppLifecycleService {
   Future<void> _storePendingCall(CallData callData) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(AppConstants.keyPendingCall, callData.toJsonString());
+      await prefs.setString(
+          AppConstants.keyPendingCall, callData.toJsonString());
 
       if (kDebugMode) {
         print('💾 Stored pending call: ${callData.sessionId}');

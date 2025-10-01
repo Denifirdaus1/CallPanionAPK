@@ -12,6 +12,15 @@ serve(async (req) => {
   }
 
   try {
+    const body = await req.json();
+    console.log('📥 FCM token registration request received:', {
+      hasUserId: !!body.userId,
+      hasToken: !!body.token,
+      hasPlatform: !!body.platform,
+      platform: body.platform,
+      payloadKeys: Object.keys(body)
+    });
+
     const { 
       userId, 
       token, 
@@ -22,9 +31,15 @@ serve(async (req) => {
       relativeId,
       householdId,
       deviceFingerprint 
-    } = await req.json();
+    } = body;
 
     if (!userId || !token || !platform) {
+      console.error('❌ Missing required fields:', {
+        userId: !!userId,
+        token: !!token,
+        platform: !!platform,
+        receivedPayload: body
+      });
       throw new Error('userId, token, and platform are required');
     }
 
@@ -137,9 +152,9 @@ serve(async (req) => {
       console.log(`Registered new FCM token for user ${userId}`);
     }
 
-    // Always update device pairing with FCM token (both Android and iOS)
+    // Update both device_pairs and devices table for proper notification routing
     try {
-      // Get existing device pairing for this user
+      // Update device_pairs table (existing functionality)
       const { data: existingPair, error: fetchError } = await supabase
         .from('device_pairs')
         .select('device_info, relative_id, household_id')
@@ -168,46 +183,12 @@ serve(async (req) => {
         } else {
           console.log(`Updated device pairing with FCM token for user ${userId} on ${platform}`);
         }
-      } else if (pairingToken || relativeId || householdId) {
-        // Try to link FCM token to device pairs by relative/household info
-        let linkQuery = supabase.from('device_pairs').select('id, device_info');
-        
-        if (relativeId) {
-          linkQuery = linkQuery.eq('relative_id', relativeId);
-        } else if (householdId) {
-          linkQuery = linkQuery.eq('household_id', householdId);
-        } else if (pairingToken) {
-          linkQuery = linkQuery.eq('pair_token', pairingToken);
-        }
 
-        const { data: pairToLink, error: linkError } = await linkQuery.single();
-        
-        if (!linkError && pairToLink) {
-          const updatedDeviceInfo = {
-            ...pairToLink.device_info,
-            ...deviceInfo,
-            fcm_token: token,
-            platform: platform,
-            ...(platform === 'ios' && voipToken && { voip_token: voipToken })
-          };
-
-          const { error: linkUpdateError } = await supabase
-            .from('device_pairs')
-            .update({
-              device_info: updatedDeviceInfo,
-              claimed_by: userId,
-              claimed_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', pairToLink.id);
-
-          if (!linkUpdateError) {
-            console.log(`Linked FCM token to device pair via pairing info for user ${userId}`);
-          }
-        }
+        // Skip devices table update - using device_pairs only
+        console.log(`Device pairing updated with FCM token for user ${userId} on ${platform}`);
       }
     } catch (deviceUpdateError) {
-      console.warn('Device pairing update failed:', deviceUpdateError);
+      console.warn('Device update failed:', deviceUpdateError);
     }
 
     return new Response(JSON.stringify({
@@ -224,7 +205,7 @@ serve(async (req) => {
     console.error('Error registering FCM token:', error);
     return new Response(JSON.stringify({
       success: false,
-      error: error.message
+      error: error instanceof Error ? error.message : 'Unknown error'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

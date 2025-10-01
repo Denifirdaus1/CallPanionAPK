@@ -9,6 +9,11 @@
 
     <!-- Audio Permissions -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- WiFi state for WebRTC connectivity (ElevenLabs SDK) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
     <!-- Bluetooth Permissions for Audio Routing (runtime permission Android 12+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />

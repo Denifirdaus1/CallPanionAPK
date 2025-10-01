@@ -20,7 +20,7 @@ async function generateAPNSJWT(): Promise<string> {
   }
 
   console.log('Generating new APNS JWT token');
-
+  
   const keyId = Deno.env.get('APNS_KEY_ID');
   const teamId = Deno.env.get('APNS_TEAM_ID');
   const keyBase64 = Deno.env.get('APNS_KEY_BASE64');
@@ -53,7 +53,7 @@ async function generateAPNSJWT(): Promise<string> {
 
   // Import private key
   const keyData = Uint8Array.from(atob(keyBase64), c => c.charCodeAt(0));
-
+  
   const privateKey = await crypto.subtle.importKey(
     'pkcs8',
     keyData,
@@ -101,15 +101,15 @@ serve(async (req) => {
 
   try {
     const supabase = serviceClient();
-    const {
-      voipToken,
+    const { 
+      voipToken, 
       deviceToken,
-      title,
-      body,
+      title, 
+      body, 
       data = {},
       householdId,
       relativeId,
-      callSessionId
+      callSessionId 
     } = await req.json();
 
     console.log('=== send-apns-voip-notification triggered ===');
@@ -139,8 +139,8 @@ serve(async (req) => {
     const jwtToken = await generateAPNSJWT();
 
     // APNS server URL
-    const apnsServer = apnsEnv === 'production'
-      ? 'https://api.push.apple.com'
+    const apnsServer = apnsEnv === 'production' 
+      ? 'https://api.push.apple.com' 
       : 'https://api.sandbox.push.apple.com';
 
     // Create APNS payload
@@ -271,10 +271,10 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in send-apns-voip-notification function:', error);
-    return new Response(JSON.stringify({
+    return new Response(JSON.stringify({ 
       error: 'apns_notification_failed',
-      message: error.message,
-      stack: error.stack
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -146,23 +146,61 @@ serve(async (req) => {
     let failureCount = 0;
     const results: any[] = [];
 
-    // Get FCM tokens for all target users
-    const { data: tokens, error: tokensError } = await supabase
-      .from('push_notification_tokens')
-      .select('user_id, token, platform')
-      .in('user_id', targetUserIds)
-      .eq('is_active', true);
+    // Try device_pairs first (new pairing system)
+    let tokens: any[] = [];
+    
+    if (householdId && relativeId) {
+      console.log('Using device_pairs for notification lookup:', { householdId, relativeId });
+      
+      // Get FCM token from device_pairs for the specific household + relative
+      const { data: devicePairs, error: pairsError } = await supabase
+        .from('device_pairs')
+        .select('household_id, relative_id, device_info, claimed_by')
+        .eq('household_id', householdId)
+        .eq('relative_id', relativeId)
+        .not('claimed_at', 'is', null)
+        .not('device_info', 'is', null);
 
-    if (tokensError) {
-      console.error('Error fetching push tokens:', tokensError);
-      throw tokensError;
+      if (!pairsError && devicePairs) {
+        for (const pair of devicePairs) {
+          const fcmToken = pair.device_info?.fcm_token;
+          const platform = pair.device_info?.platform || 'android';
+          
+          if (fcmToken) {
+            tokens.push({
+              user_id: pair.claimed_by,
+              token: fcmToken,
+              platform: platform,
+              source: 'device_pairs'
+            });
+            console.log('Found FCM token via device_pairs:', { token: fcmToken, platform });
+          }
+        }
+      } else {
+        console.log('Error or no device_pairs found:', pairsError);
+      }
+    }
+    
+    // Fallback to push_notification_tokens for broader notifications or if no device_pairs found
+    if (tokens.length === 0 && targetUserIds.length > 0) {
+      console.log('Falling back to push_notification_tokens');
+      
+      const { data: fallbackTokens, error: tokensError } = await supabase
+        .from('push_notification_tokens')
+        .select('user_id, token, platform')
+        .in('user_id', targetUserIds)
+        .eq('is_active', true);
+
+      if (!tokensError && fallbackTokens) {
+        tokens = fallbackTokens.map(t => ({ ...t, source: 'push_notification_tokens' }));
+      }
     }
 
-    if (!tokens || tokens.length === 0) {
-      console.log('No active push tokens found for target users');
+    if (tokens.length === 0) {
+      console.log('No FCM tokens found via device_pairs or push_notification_tokens');
       return new Response(JSON.stringify({
         success: true,
-        message: 'No active push tokens found',
+        message: 'No FCM tokens found',
         sent: 0,
         failed: 0,
         results: []
@@ -170,6 +208,8 @@ serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    console.log(`Found ${tokens.length} FCM tokens to send notifications to`);
 
     // Send notification to each token
     for (const tokenRecord of tokens) {
@@ -356,7 +396,7 @@ serve(async (req) => {
           user_id: tokenRecord.user_id,
           platform: tokenRecord.platform,
           success: false,
-          error: error.message
+          error: error instanceof Error ? error.message : 'Unknown error'
         });
 
         console.error(`Error sending push notification to user ${tokenRecord.user_id}:`, error);

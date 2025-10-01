@@ -107,16 +107,15 @@ class _CallScreenState extends State<CallScreen> {
     // Start duration timer
     _startDurationTimer();
 
-    // ElevenLabs WebRTC is already started by CallKitService
-    // We just need to connect to the existing session
+    // ElevenLabs WebRTC connection for in-app calls
     if (widget.callType == AppConstants.callTypeInApp) {
-      // Check if ElevenLabs call is active
+      // Check if ElevenLabs call is already active
       final isActive = ElevenLabsCallService.instance.isCallActive;
       if (kDebugMode) {
         print('🎙️ ElevenLabs WebRTC status: $isActive');
       }
 
-      // Try to start the connection immediately without retry logic for faster connection
+      // Start ElevenLabs call with optimized connection
       try {
         final result = await ElevenLabsCallService.instance
             .startElevenLabsCall(widget.sessionId);
@@ -128,7 +127,7 @@ class _CallScreenState extends State<CallScreen> {
           print('❌ Error starting ElevenLabs call: $e');
         }
 
-        // Try once more with retry logic if first attempt fails
+        // Try with retry logic if first attempt fails
         await _startElevenLabsWithRetry();
       }
     }
@@ -140,7 +139,7 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _startElevenLabsWithRetry() async {
     int attempts = 0;
-    const maxAttempts = 2;
+    const maxAttempts = 3;
 
     while (attempts < maxAttempts) {
       try {
@@ -163,9 +162,9 @@ class _CallScreenState extends State<CallScreen> {
         // If not the last attempt, wait before retrying
         if (attempts < maxAttempts) {
           if (kDebugMode) {
-            print('🔄 Retrying ElevenLabs connection in 2 seconds...');
+            print('🔄 Retrying ElevenLabs connection in 1 second...');
           }
-          await Future.delayed(const Duration(seconds: 2));
+          await Future.delayed(const Duration(seconds: 1));
         }
       } catch (e) {
         if (kDebugMode) {
@@ -174,22 +173,21 @@ class _CallScreenState extends State<CallScreen> {
 
         // If not the last attempt, wait before retrying
         if (attempts < maxAttempts) {
-          await Future.delayed(const Duration(seconds: 1));
+          await Future.delayed(const Duration(milliseconds: 500));
         }
       }
     }
 
-    // All attempts failed - show error and end call
+    // All attempts failed - show error but don't end call immediately
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Failed to connect to voice assistant after retries'),
-          backgroundColor: Colors.red,
+          content: Text(
+              'Voice assistant connection failed - call may continue without AI'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
         ),
       );
-      // End the CallKit call to prevent UI from getting stuck
-      await CallKitService.instance.endCurrentCall();
-      Navigator.pop(context);
     }
   }
 
@@ -205,36 +203,68 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _endCall() async {
+    // Prevent multiple end call attempts
+    if (!_isCallActive) {
+      if (kDebugMode) {
+        print('⚠️ Call already ended, skipping duplicate end call');
+      }
+      return;
+    }
+
     try {
       setState(() {
         _isCallActive = false;
       });
 
+      if (kDebugMode) {
+        print('📞 Starting call cleanup for: ${widget.sessionId}');
+      }
+
       // End ElevenLabs WebRTC call first for in-app calls (before Supabase)
       if (widget.callType == AppConstants.callTypeInApp) {
-        final success = await ElevenLabsCallService.instance.endElevenLabsCall(
-          widget.sessionId,
-          summary: 'Call completed',
-          duration: _callDuration,
-        );
-        if (kDebugMode) {
-          print('🎙️ ElevenLabs WebRTC ended: $success');
+        try {
+          final success =
+              await ElevenLabsCallService.instance.endElevenLabsCall(
+            widget.sessionId,
+            summary: 'Call completed',
+            duration: _callDuration,
+          );
+          if (kDebugMode) {
+            print('🎙️ ElevenLabs WebRTC ended: $success');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('❌ Error ending ElevenLabs call: $e');
+          }
         }
       }
 
       // Update call status via API
-      await ApiService.instance.updateCallStatus(
-        sessionId: widget.sessionId,
-        status: AppConstants.callStatusCompleted,
-        action: 'end',
-        duration: _callDuration,
-      );
+      try {
+        await ApiService.instance.updateCallStatus(
+          sessionId: widget.sessionId,
+          status: AppConstants.callStatusCompleted,
+          action: 'end',
+          duration: _callDuration,
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Error updating call status: $e');
+        }
+      }
 
       // Also end the CallKit call to ensure proper cleanup
-      await CallKitService.instance.endCurrentCall();
+      try {
+        await CallKitService.instance.endCurrentCall();
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Error ending CallKit call: $e');
+        }
+      }
 
       if (kDebugMode) {
-        print('📞 Call ended: ${widget.sessionId} (${_callDuration}s)');
+        print(
+            '📞 Call ended successfully: ${widget.sessionId} (${_callDuration}s)');
       }
 
       // Return to main screen
@@ -243,7 +273,11 @@ class _CallScreenState extends State<CallScreen> {
       }
     } catch (e) {
       if (kDebugMode) {
-        print('❌ Error ending call: $e');
+        print('❌ Fatal error ending call: $e');
+      }
+      // Still try to close the screen even if cleanup fails
+      if (mounted) {
+        Navigator.pop(context);
       }
     }
   }
@@ -253,10 +287,8 @@ class _CallScreenState extends State<CallScreen> {
     // Cancel event subscription
     _conversationEventSubscription?.cancel();
 
-    // Ensure call cleanup when screen is disposed
-    if (_isCallActive) {
-      _endCall();
-    }
+    // Don't call async _endCall() in dispose - it's already handled by end button
+    // Just ensure cleanup happens
     super.dispose();
   }
 

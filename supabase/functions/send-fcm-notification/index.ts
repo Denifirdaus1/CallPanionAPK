@@ -101,10 +101,9 @@ serve(async (req) => {
         .from('device_pairs')
         .select('household_id, relative_id, device_info')
         .eq('household_id', householdId)
-        .not('claimed_at', 'is', null)
-        .single();
+        .not('claimed_at', 'is', null);
 
-      if (validationError || !tokenValidation) {
+      if (validationError || !tokenValidation || tokenValidation.length === 0) {
         console.error('FCM Token validation failed:', validationError);
         return new Response(JSON.stringify({
           success: false,
@@ -115,13 +114,17 @@ serve(async (req) => {
         });
       }
 
-      // Check if device token matches paired device
-      const pairedToken = tokenValidation.device_info?.fcm_token;
-      if (pairedToken && pairedToken !== deviceToken) {
-        console.error('FCM Token mismatch for household:', { householdId, relativeId });
+      // Check if device token matches any paired device for this household
+      const validTokenFound = tokenValidation.some(pair => {
+        const pairedToken = pair.device_info?.fcm_token;
+        return pairedToken === deviceToken;
+      });
+
+      if (!validTokenFound) {
+        console.error('FCM Token mismatch for household:', { householdId, relativeId, deviceToken });
         return new Response(JSON.stringify({
           success: false,
-          error: 'Device token does not match paired device'
+          error: 'Device token does not match any paired device'
         }), {
           status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -223,22 +226,7 @@ serve(async (req) => {
       throw new Error(`FCM failed: ${fcmResult.error || 'Unknown error'}`);
     }
 
-    // Log notification in database
-    const { error: logError } = await supabase
-      .from('push_notifications')
-      .insert({
-        device_token: deviceToken,
-        title: title,
-        body: body,
-        data: data,
-        status: 'sent',
-        fcm_response: fcmResult
-      });
-
-    if (logError) {
-      console.error('Failed to log notification:', logError);
-      // Don't throw, notification was sent successfully
-    }
+    // Notification sent successfully - logging handled via console.log above
 
     console.log('FCM V1 notification sent successfully:', {
       name: fcmResult.name

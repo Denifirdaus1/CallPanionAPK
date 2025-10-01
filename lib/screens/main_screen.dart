@@ -9,7 +9,6 @@ import '../services/app_lifecycle_service.dart';
 import '../models/call_data.dart';
 import '../utils/constants.dart';
 import '../utils/connection_test.dart';
-import 'call_screen.dart';
 // Removed webview_call_screen.dart import - using native ElevenLabs WebRTC only
 import 'pairing_screen.dart';
 
@@ -31,7 +30,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initializeApp();
+    // Initialize in background without blocking UI
+    _initializeInBackground();
   }
 
   @override
@@ -50,52 +50,105 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _initializeApp() async {
+  /// Initialize app components in background without blocking UI
+  Future<void> _initializeInBackground() async {
     try {
-      setState(() {
-        _status = 'Initializing CallPanion...';
-      });
-
-      // Setup CallKit callbacks first
+      // Setup callbacks first (non-blocking)
       _setupCallKitCallbacks();
-
-      // Setup FCM callbacks
       _setupFCMCallbacks();
-
-      // Setup App Lifecycle callbacks and check for pending calls IMMEDIATELY
       _setupAppLifecycleCallbacks();
 
-      // Check for pending calls first - this takes priority over everything else
-      await _checkForPendingCalls();
-
-      // Only continue with full initialization if there's no pending call
-      if (_currentCall == null) {
-        // Check device pairing status
-        await _checkDeviceStatus();
-
-        // Register tokens with server
-        await _registerTokens();
-
-        // Check for any pending scheduled calls
-        await _checkForScheduledCalls();
-
+      // Always start with UI ready state - no loading screen
+      if (mounted) {
         setState(() {
           _isLoading = false;
-          _status = _isDevicePaired ? 'Ready for calls' : 'Device not paired';
+          _status = 'Ready for calls';
+        });
+      }
+
+      // Check if recently initialized
+      final recentlyInitialized = await _isRecentlyInitialized();
+
+      if (recentlyInitialized) {
+        // Skip full initialization if recently done (within 10 minutes)
+        // Just check device status quickly in background
+        await _checkDeviceStatus();
+
+        if (mounted) {
+          setState(() {
+            _status = _isDevicePaired ? 'Ready for calls' : 'Device not paired';
+          });
+        }
+
+        if (kDebugMode) {
+          print('✅ Quick initialization (cached)');
+        }
+      } else {
+        // Perform essential initialization tasks in background
+        await _performEssentialInitialization();
+
+        // Mark as initialized
+        await _markAsInitialized();
+
+        // Update status based on pairing
+        if (mounted) {
+          setState(() {
+            _status = _isDevicePaired ? 'Ready for calls' : 'Device not paired';
+          });
+        }
+
+        if (kDebugMode) {
+          print('✅ Full initialization completed');
+        }
+      }
+
+      // Continue with non-essential background tasks
+      _performBackgroundTasks();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _status = 'Ready for calls';
         });
       }
 
       if (kDebugMode) {
-        print('✅ App initialization completed');
+        print('❌ Error in background initialization: $e');
       }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _status = 'Error initializing app';
-      });
+    }
+  }
+
+  /// Perform essential initialization tasks that are required for app to function
+  Future<void> _performEssentialInitialization() async {
+    try {
+      // Check device pairing status (essential)
+      await _checkDeviceStatus();
+
+      // Register tokens with server (essential for notifications)
+      await _registerTokens();
 
       if (kDebugMode) {
-        print('❌ Error initializing app: $e');
+        print('✅ Essential initialization completed');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error in essential initialization: $e');
+      }
+    }
+  }
+
+  /// Perform background tasks without blocking UI
+  Future<void> _performBackgroundTasks() async {
+    try {
+      // Check for any pending scheduled calls (non-essential)
+      await _checkForScheduledCalls();
+
+      if (kDebugMode) {
+        print('✅ Background tasks completed');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error in background tasks: $e');
       }
     }
   }
@@ -107,10 +160,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       });
     };
 
-    CallKitService.instance.onCallAccepted = (sessionId, callType) {
-      // Navigate immediately when call is accepted
-      _navigateToCallScreen(sessionId, callType);
-    };
+    // Note: onCallAccepted is now handled in main.dart to ensure direct navigation
+    // This prevents conflicts and ensures calls go directly to CallScreen
 
     CallKitService.instance.onCallDeclined = (sessionId) {
       setState(() {
@@ -139,10 +190,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _status = 'Incoming call from ${callData.relativeName}';
       });
 
-      // Navigate immediately to call screen for incoming calls
-      if (mounted) {
-        _navigateToCallScreen(callData.sessionId, callData.callType);
-      }
+      // Note: Navigation is now handled in main.dart to ensure direct navigation
+      // This prevents conflicts and ensures calls go directly to CallScreen
     };
 
     FCMService.instance.onCallScheduled = (data) {
@@ -164,10 +213,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _status = 'Connecting to ${callData.relativeName}...';
       });
 
-      // Automatically navigate to call screen when app resumes with pending call
-      if (mounted) {
-        _navigateToCallScreen(callData.sessionId, callData.callType);
-      }
+      // Note: Navigation is now handled in main.dart to ensure direct navigation
+      // This prevents conflicts and ensures calls go directly to CallScreen
     };
   }
 
@@ -190,6 +237,34 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error checking device status: $e');
+      }
+    }
+  }
+
+  /// Check if app was recently initialized to avoid redundant initialization
+  Future<bool> _isRecentlyInitialized() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lastInitTime = prefs.getInt('last_init_time') ?? 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final timeDiff = now - lastInitTime;
+
+      // If initialized within last 10 minutes, skip full initialization
+      return timeDiff < 10 * 60 * 1000;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Mark app as recently initialized
+  Future<void> _markAsInitialized() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+          'last_init_time', DateTime.now().millisecondsSinceEpoch);
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error marking as initialized: $e');
       }
     }
   }
@@ -242,45 +317,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _checkForPendingCalls() async {
-    try {
-      // Initialize AppLifecycleService and check for pending calls
-      await AppLifecycleService.instance.initialize();
-
-      // Check if there's a pending call from when app was closed
-      final prefs = await SharedPreferences.getInstance();
-      final pendingCallData = prefs.getString(AppConstants.keyPendingCall);
-
-      if (pendingCallData != null) {
-        // Clear stored pending call
-        await prefs.remove(AppConstants.keyPendingCall);
-
-        // Parse and trigger call navigation immediately
-        final callData = CallData.fromJsonString(pendingCallData);
-        if (callData != null) {
-          if (kDebugMode) {
-            print('📞 Found pending call, navigating immediately: ${callData.sessionId}');
-          }
-
-          setState(() {
-            _currentCall = callData;
-            _isLoading = false;
-            _status = 'Connecting to ${callData.relativeName}...';
-          });
-
-          // Navigate immediately without waiting for full initialization
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _navigateToCallScreen(callData.sessionId, callData.callType);
-          });
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error checking pending calls: $e');
-      }
-    }
-  }
-
   Future<void> _checkForScheduledCalls() async {
     try {
       final scheduledCalls = await ApiService.instance.checkScheduledCalls();
@@ -321,39 +357,24 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _navigateToCallScreen(String sessionId, String callType) {
-    if (callType == AppConstants.callTypeInApp) {
-      // For in-app calls, use native call screen with ElevenLabs WebRTC
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => CallScreen(
-            sessionId: sessionId,
-            relativeName: _relativeName ?? 'Your Family',
-            callType: callType,
-          ),
-        ),
-      );
-    } else {
-      // For all other call types, also use native call screen with ElevenLabs WebRTC
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => CallScreen(
-            sessionId: sessionId,
-            relativeName: _relativeName ?? 'Your Family',
-            callType: callType,
-          ),
-        ),
-      );
-    }
-  }
-
-  void _manualRefresh() {
+  void _manualRefresh() async {
     setState(() {
       _isLoading = true;
+      _status = 'Refreshing...';
     });
-    _initializeApp();
+
+    // Clear cache to force full initialization
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('last_init_time');
+
+    // Perform full initialization
+    await _performEssentialInitialization();
+
+    // Mark as initialized
+    await _markAsInitialized();
+
+    // Continue with background tasks
+    _performBackgroundTasks();
   }
 
   void _navigateToPairing() {
@@ -456,8 +477,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         _isLoading
                             ? Icons.sync
                             : _isDevicePaired
-                            ? Icons.check_circle
-                            : Icons.warning,
+                                ? Icons.check_circle
+                                : Icons.warning,
                         size: 32,
                         color: _isDevicePaired
                             ? const Color(0xFF10B981)
@@ -528,9 +549,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           title: const Text('Connection Test Results'),
                           content: Column(
                             mainAxisSize: MainAxisSize.min,
-                            children: results.entries.map((entry) =>
-                                Text('${entry.key}: ${entry.value ? "✅" : "❌"}')
-                            ).toList(),
+                            children: results.entries
+                                .map((entry) => Text(
+                                    '${entry.key}: ${entry.value ? "✅" : "❌"}'))
+                                .toList(),
                           ),
                           actions: [
                             TextButton(
@@ -560,7 +582,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),

@@ -145,6 +145,9 @@ const handler = async (req: Request): Promise<Response> => {
       .eq('id', pairingToken.relative_id)
       .single();
 
+    // Skip customer_id and devices table - use device_pairs directly for notifications
+    console.log('Using simplified device pairing without customer_id/device_id dependencies');
+
     // Mark pairing token as claimed and store device info
     const { error: updateError } = await supabase
       .from('device_pairs')
@@ -154,7 +157,9 @@ const handler = async (req: Request): Promise<Response> => {
         device_info: {
           claimed_by_user_id: user_id,
           claim_timestamp: new Date().toISOString(),
-          claim_ip: req.headers.get('x-forwarded-for') || 'unknown'
+          claim_ip: req.headers.get('x-forwarded-for') || 'unknown',
+          platform: 'android',
+          paired_at: new Date().toISOString()
         }
       })
       .eq('id', pairingToken.id);

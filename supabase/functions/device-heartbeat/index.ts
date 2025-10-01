@@ -61,18 +61,10 @@ serve(async (req) => {
       }
     }
 
-    // If deviceToken provided, try to find device record
+    // Use device_pairs instead of legacy devices table
     if (deviceToken && !deviceId) {
-      const { data: deviceData, error: deviceError } = await supabase
-        .from('devices')
-        .select('id, customer_id, household_id')
-        .eq('push_token', deviceToken)
-        .single();
-
-      if (!deviceError && deviceData) {
-        deviceId = deviceData.id;
-        householdId = deviceData.household_id;
-      }
+      console.log('⚠️ Legacy devices table lookup - should use device_pairs instead');
+      // Skip legacy devices table lookup
     }
 
     // Create or update device record
@@ -124,35 +116,43 @@ serve(async (req) => {
 
     // Update device pair status if claimed
     if (pairingToken && status === 'online') {
-      EdgeRuntime.waitUntil(
-        supabase
-          .from('device_pairs')
-          .update({ 
-            claimed_at: new Date().toISOString(),
-            device_info: deviceInfo 
-          })
-          .eq('pair_token', pairingToken)
-      );
+      // Background task: Update device pairing status
+      (async () => {
+        try {
+          await supabase
+            .from('device_pairs')
+            .update({ 
+              claimed_at: new Date().toISOString(),
+              device_info: deviceInfo 
+            })
+            .eq('pair_token', pairingToken);
+        } catch (error) {
+          console.error('Failed to update device pair:', error);
+        }
+      })();
     }
 
-    // Log heartbeat activity
-    EdgeRuntime.waitUntil(
-      supabase
-        .from('device_activity_log')
-        .insert({
-          device_id: deviceId,
-          household_id: householdId,
-          relative_id: relativeId,
-          activity_type: 'heartbeat',
-          status: status,
-          metadata: {
-            battery_level: batteryLevel,
-            connection_type: connectionType,
-            app_version: appVersion
-          }
-        })
-        .catch(error => console.error('Failed to log device activity:', error))
-    );
+    // Background task: Log device activity
+    (async () => {
+      try {
+        await supabase
+          .from('device_activity_log')
+          .insert({
+            device_id: deviceId,
+            household_id: householdId,
+            relative_id: relativeId,
+            activity_type: 'heartbeat',
+            status: status,
+            metadata: {
+              battery_level: batteryLevel,
+              connection_type: connectionType,
+              app_version: appVersion
+            }
+          });
+      } catch (error) {
+        console.error('Failed to log device activity:', error);
+      }
+    })();
 
     console.log('Device heartbeat processed:', {
       deviceId,
@@ -177,7 +177,7 @@ serve(async (req) => {
     console.error('Error in device-heartbeat function:', error);
     return new Response(JSON.stringify({ 
       error: 'heartbeat_failed',
-      message: error.message 
+      message: error instanceof Error ? error.message : 'Unknown error' 
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

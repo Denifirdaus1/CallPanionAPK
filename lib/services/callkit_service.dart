@@ -44,13 +44,16 @@ class CallKitService {
       // Request notification permissions
       await FlutterCallkitIncoming.requestNotificationPermission({
         'title': 'CallPanion Notification',
-        'rationaleMessagePermission': 'CallPanion needs notification permission to show incoming calls.',
-        'postNotificationMessageRequired': 'Please enable notifications in Settings to receive calls.'
+        'rationaleMessagePermission':
+            'CallPanion needs notification permission to show incoming calls.',
+        'postNotificationMessageRequired':
+            'Please enable notifications in Settings to receive calls.'
       });
 
       // For Android 14+, request full screen intent permission
       if (Platform.isAndroid) {
-        final canUseFullScreenIntent = await FlutterCallkitIncoming.canUseFullScreenIntent();
+        final canUseFullScreenIntent =
+            await FlutterCallkitIncoming.canUseFullScreenIntent();
         if (!canUseFullScreenIntent) {
           await FlutterCallkitIncoming.requestFullIntentPermission();
         }
@@ -116,7 +119,7 @@ class CallKitService {
         appName: 'CallPanion',
         avatar: callData.avatar ?? '',
         handle: callData.handle ?? 'CallPanion',
-        type: callData.callType == AppConstants.callTypeInApp ? 1 : 0, // 1 = video, 0 = audio
+        type: 0, // 0 = audio call (phone icon), 1 = video call
         textAccept: 'Accept',
         textDecline: 'Decline',
         duration: int.tryParse(callData.duration ?? '30000') ?? 30000,
@@ -233,63 +236,34 @@ class CallKitService {
           // Mark call as connected in CallKit
           await FlutterCallkitIncoming.setCallConnected(callUuid);
 
-          // Store call data for app lifecycle management
-          if (_currentCall != null) {
-            final callData = CallData(
-              sessionId: sessionId,
-              relativeName: relativeName,
-              callType: callType ?? AppConstants.callTypeInApp,
-              householdId: householdId ?? '',
-              relativeId: relativeId ?? '',
-            );
+          // Create and store call data
+          final callData = CallData(
+            sessionId: sessionId,
+            relativeName: relativeName,
+            callType: callType ?? AppConstants.callTypeInApp,
+            householdId: householdId ?? '',
+            relativeId: relativeId ?? '',
+          );
 
-            // Store the call data for when app comes to foreground
-            await _storePendingCallData(callData);
+          // Store the call data for when app comes to foreground
+          await _storePendingCallData(callData);
 
-            // Also navigate immediately if we have an onCallAccepted callback
-            if (onCallAccepted != null && callType != null) {
-              if (kDebugMode) {
-                print('📞 Triggering navigation callback with delay...');
-              }
-              // Small delay to ensure CallKit UI transition is complete
-              Future.delayed(const Duration(milliseconds: 100), () {
-                onCallAccepted!(sessionId, callType);
-              });
-            }
-          } else {
-            // Create call data and navigate immediately
-            CallData(
-              sessionId: sessionId,
-              relativeName: relativeName,
-              callType: callType ?? AppConstants.callTypeInApp,
-              householdId: householdId ?? '',
-              relativeId: relativeId ?? '',
-            );
+          // Update current call
+          _currentCall = callData;
 
-            if (onCallAccepted != null && callType != null) {
-              if (kDebugMode) {
-                print('📞 Triggering navigation callback (no current call)...');
-              }
-              // Small delay to ensure CallKit UI transition is complete
-              Future.delayed(const Duration(milliseconds: 100), () {
-                onCallAccepted!(sessionId, callType);
-              });
-            }
-          }
-
-          // Start ElevenLabs WebRTC call for in-app calls
-          if (callType == AppConstants.callTypeInApp) {
+          // Navigate immediately if we have an onCallAccepted callback
+          if (onCallAccepted != null && callType != null) {
             if (kDebugMode) {
-              print('🎙️ Starting ElevenLabs WebRTC call...');
+              print('📞 Triggering navigation callback...');
             }
-            // Start ElevenLabs WebRTC call with a slight delay to allow navigation
-            Future.delayed(const Duration(milliseconds: 200), () async {
-              final elevenLabsSuccess = await ElevenLabsCallService.instance.startElevenLabsCall(sessionId);
-              if (kDebugMode) {
-                print('🎙️ ElevenLabs WebRTC call started: $elevenLabsSuccess');
-              }
+            // Small delay to ensure CallKit UI transition is complete
+            Future.delayed(const Duration(milliseconds: 100), () {
+              onCallAccepted!(sessionId, callType);
             });
           }
+
+          // Note: ElevenLabs WebRTC call will be started in CallScreen
+          // This ensures proper navigation and UI state management
 
           if (kDebugMode) {
             print('✅ Call accepted successfully: $sessionId');
@@ -425,11 +399,29 @@ class CallKitService {
   }
 
   void _handleCallCallback(CallEvent event) {
-    // Handle "call back" action from missed call notification
+    // Handle "call back" or notification click action
     if (kDebugMode) {
-      print('📞 Call callback requested');
+      print('📞 Call notification clicked - navigating to active call');
     }
-    // This could trigger a callback to family members
+
+    // When user clicks notification during active call, navigate to CallScreen
+    if (_currentCall != null && _currentCallUuid != null) {
+      final sessionId = _currentCall!.sessionId;
+      final callType = _currentCall!.callType;
+
+      if (kDebugMode) {
+        print('📞 Navigating to active call: $sessionId');
+      }
+
+      // Trigger navigation callback
+      if (onCallAccepted != null) {
+        onCallAccepted!(sessionId, callType);
+      }
+    } else {
+      if (kDebugMode) {
+        print('⚠️ No active call found for callback');
+      }
+    }
   }
 
   void _handleVoIPTokenUpdate(CallEvent event) async {
@@ -484,7 +476,8 @@ class CallKitService {
   Future<void> _storePendingCallData(CallData callData) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(AppConstants.keyPendingCall, callData.toJsonString());
+      await prefs.setString(
+          AppConstants.keyPendingCall, callData.toJsonString());
 
       if (kDebugMode) {
         print('💾 Stored pending call data: ${callData.sessionId}');

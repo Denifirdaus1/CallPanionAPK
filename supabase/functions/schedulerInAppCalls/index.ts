@@ -65,7 +65,7 @@ async function retryOperation<T>(
         config.maxDelay
       );
 
-      console.warn(`[Retry] Attempt ${attempt + 1} failed, retrying in ${delay}ms:`, error.message);
+      console.warn(`[Retry] Attempt ${attempt + 1} failed, retrying in ${delay}ms:`, (error as Error).message);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
@@ -195,8 +195,8 @@ async function queueNotificationWithDeviceInfo(
     return { success: true };
 
   } catch (error) {
-    console.error(`[Queue] ❌ Failed to queue notification:`, error.message);
-    return { success: false, error: error.message };
+    console.error(`[Queue] ❌ Failed to queue notification:`, (error as Error).message);
+    return { success: false, error: (error as Error).message };
   }
 }
 
@@ -348,8 +348,8 @@ async function executeScheduleDirectly(
     return { success: true };
 
   } catch (error) {
-    console.error(`[Execute] ❌ Failed to execute schedule:`, error.message);
-    return { success: false, error: error.message };
+    console.error(`[Execute] ❌ Failed to execute schedule:`, (error as Error).message);
+    return { success: false, error: (error as Error).message };
   }
 }
 
@@ -478,7 +478,7 @@ async function executeQueuedNotification(
     return { success: true };
 
   } catch (error) {
-    console.error(`[Execute] ❌ Failed to execute notification:`, error.message);
+    console.error(`[Execute] ❌ Failed to execute notification:`, (error as Error).message);
 
     // Update retry count and status
     const newRetryCount = notification.retry_count + 1;
@@ -489,12 +489,12 @@ async function executeQueuedNotification(
       .update({
         status: status,
         retry_count: newRetryCount,
-        last_error: error.message,
+        last_error: (error as Error).message,
         updated_at: new Date().toISOString()
       })
       .eq('id', notification.queue_id);
 
-    return { success: false, error: error.message };
+    return { success: false, error: (error as Error).message };
   }
 }
 
@@ -554,7 +554,7 @@ async function broadcastCallScheduled(supabase: any, householdId: string, sessio
       }
     });
   } catch (error) {
-    console.warn('[Execute] Failed to broadcast call scheduled event:', error.message);
+    console.warn('[Execute] Failed to broadcast call scheduled event:', (error as Error).message);
   }
 }
 
@@ -582,12 +582,12 @@ async function notifyFamilyMembers(supabase: any, householdId: string, sessionId
             }
           });
         } catch (error) {
-          console.warn('[Execute] Family notification failed:', error.message);
+          console.warn('[Execute] Family notification failed:', (error as Error).message);
         }
       }
     }
   } catch (error) {
-    console.warn('[Execute] Failed to notify family members:', error.message);
+    console.warn('[Execute] Failed to notify family members:', (error as Error).message);
   }
 }
 
@@ -738,8 +738,8 @@ serve(async (req) => {
         last_run: new Date().toISOString(),
         status: 'error',
         details: {
-          error: error.message,
-          stack: error.stack,
+          error: (error as Error).message,
+          stack: (error as Error).stack,
           timestamp: new Date().toISOString()
         }
       }, {
@@ -748,7 +748,7 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({
       error: 'in_app_call_scheduling_failed',
-      message: error.message,
+      message: (error as Error).message,
       timestamp: new Date().toISOString()
     }), {
       status: 500,

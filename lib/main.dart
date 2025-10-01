@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services/callkit_service.dart';
 import 'services/fcm_service.dart';
 import 'services/permission_service.dart';
 import 'services/network_service.dart';
-import 'services/elevenlabs_call_service.dart';
 import 'screens/main_screen.dart';
 import 'screens/call_screen.dart';
 import 'models/call_data.dart';
@@ -51,8 +51,6 @@ class CallPanionElderlyApp extends StatefulWidget {
 
 class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
-  bool _shouldShowMainScreen = true;
-  CallData? _pendingCall;
 
   @override
   void initState() {
@@ -62,12 +60,51 @@ class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> {
   }
 
   void _setupCallKitNavigation() {
-    // Set up CallKit callbacks for navigation
+    // Set up CallKit callbacks for navigation - this takes priority over MainScreen
     CallKitService.instance.onCallAccepted = (sessionId, callType) {
-      if (callType == AppConstants.callTypeInApp) {
-        // Navigate to native call screen
-        _navigateToCallScreen(sessionId);
+      if (kDebugMode) {
+        print(
+            '📞 Call accepted in main.dart - navigating directly to CallScreen');
       }
+
+      // Get current call data to extract relative name
+      final currentCall = CallKitService.instance.currentCall;
+      final relativeName = currentCall?.relativeName ?? 'Family Member';
+
+      if (kDebugMode) {
+        print('📞 Immediate navigation to CallScreen: $sessionId');
+      }
+
+      // Use post frame callback to ensure navigator is ready
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_navigatorKey.currentState != null) {
+          _navigatorKey.currentState!.push(
+            MaterialPageRoute(
+              builder: (context) => CallScreen(
+                sessionId: sessionId,
+                relativeName: relativeName,
+                callType: callType,
+              ),
+            ),
+          );
+        } else {
+          if (kDebugMode) {
+            print('⚠️ Navigator not ready, retrying...');
+          }
+          // Retry after a short delay
+          Future.delayed(const Duration(milliseconds: 100), () {
+            _navigatorKey.currentState?.push(
+              MaterialPageRoute(
+                builder: (context) => CallScreen(
+                  sessionId: sessionId,
+                  relativeName: relativeName,
+                  callType: callType,
+                ),
+              ),
+            );
+          });
+        }
+      });
     };
   }
 
@@ -84,33 +121,39 @@ class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> {
         // Parse call data
         final callData = CallData.fromJsonString(pendingCallData);
         if (callData != null) {
-          setState(() {
-            _shouldShowMainScreen = false;
-            _pendingCall = callData;
-          });
+          if (kDebugMode) {
+            print('📞 Found pending call on startup: ${callData.sessionId}');
+          }
 
-          // Navigate directly to call screen without full initialization
+          // Navigate directly to call screen immediately after first frame
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _navigateToCallScreen(callData.sessionId);
+            _navigateToCallScreen(callData.sessionId, callData.callType);
           });
+          return; // Exit early to skip showing MainScreen
         }
       }
     } catch (e) {
-      print('❌ Error checking pending calls on startup: $e');
+      if (kDebugMode) {
+        print('❌ Error checking pending calls on startup: $e');
+      }
     }
   }
 
-  void _navigateToCallScreen(String sessionId) {
+  void _navigateToCallScreen(String sessionId, String callType) {
     // Get current call data to extract relative name
     final currentCall = CallKitService.instance.currentCall;
     final relativeName = currentCall?.relativeName ?? 'Family Member';
+
+    if (kDebugMode) {
+      print('📞 Navigating to CallScreen: $sessionId, type: $callType');
+    }
 
     _navigatorKey.currentState?.push(
       MaterialPageRoute(
         builder: (context) => CallScreen(
           sessionId: sessionId,
           relativeName: relativeName,
-          callType: AppConstants.callTypeInApp,
+          callType: callType,
         ),
       ),
     );
@@ -130,25 +173,9 @@ class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> {
           brightness: Brightness.light,
         ),
       ),
-      home: _shouldShowMainScreen
-          ? const MainScreen()
-          : Scaffold(
-              body: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 16),
-                    Text(
-                      _pendingCall != null
-                          ? 'Connecting to ${_pendingCall!.relativeName}...'
-                          : 'Connecting to call...',
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+      // Always show MainScreen immediately - initialization happens in background
+      // If there's a pending call, navigation will happen via callback
+      home: const MainScreen(),
       debugShowCheckedModeBanner: false,
     );
   }

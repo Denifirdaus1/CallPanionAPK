@@ -136,7 +136,8 @@ class FCMService {
 
         if (kDebugMode) {
           print('📱 FCM Token: ${token.substring(0, 20)}...');
-          print('📱 Token will be registered after device pairing or during app init');
+          print(
+              '📱 Token will be registered after device pairing or during app init');
         }
       }
     } catch (e) {
@@ -151,9 +152,12 @@ class FCMService {
     try {
       final token = customToken ?? _currentToken;
       if (token != null) {
-        final success = await ApiService.instance.registerFCMToken(fcmToken: token);
+        final success =
+            await ApiService.instance.registerFCMToken(fcmToken: token);
         if (kDebugMode) {
-          print(success ? '✅ FCM token registered successfully' : '❌ Failed to register FCM token');
+          print(success
+              ? '✅ FCM token registered successfully'
+              : '❌ Failed to register FCM token');
         }
         return success;
       }
@@ -218,7 +222,8 @@ class FCMService {
     _messaging.getInitialMessage().then((RemoteMessage? message) {
       if (message != null) {
         if (kDebugMode) {
-          print('📱 FCM message opened app from terminated state: ${message.messageId}');
+          print(
+              '📱 FCM message opened app from terminated state: ${message.messageId}');
         }
         _handleMessageOpenedApp(message);
       }
@@ -303,11 +308,13 @@ class FCMService {
           }
 
           if (kDebugMode) {
-            print('📞 Incoming call processed successfully: ${callData.sessionId}');
+            print(
+                '📞 Incoming call processed successfully: ${callData.sessionId}');
           }
         } else {
           if (kDebugMode) {
-            print('❌ Call ownership verification failed for session: $sessionId');
+            print(
+                '❌ Call ownership verification failed for session: $sessionId');
           }
         }
       }).catchError((error) {
@@ -349,29 +356,8 @@ class FCMService {
       // If user opened app via incoming call notification, handle it immediately
       _handleIncomingCallMessage(message.data);
 
-      // Also navigate directly to call screen if we have all required data
-      final sessionId = message.data['sessionId'] ?? '';
-      final callType = message.data['callType'] ?? AppConstants.callTypeInApp;
-
-      if (sessionId.isNotEmpty && callType == AppConstants.callTypeInApp) {
-        // Small delay to ensure UI is ready
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (onIncomingCall != null) {
-            final callData = CallData(
-              sessionId: sessionId,
-              relativeName: message.data['relativeName'] ?? 'Your Family',
-              callType: callType,
-              householdId: message.data['householdId'] ?? '',
-              relativeId: message.data['relativeId'] ?? '',
-              handle: message.data['handle'] ?? 'CallPanion',
-              avatar: message.data['avatar'] ?? '',
-              duration: message.data['duration'] ?? '30000',
-            );
-            // Navigate directly to call screen
-            onIncomingCall!(callData);
-          }
-        });
-      }
+      // Note: Navigation is now handled in main.dart to ensure direct navigation
+      // This prevents conflicts and ensures calls go directly to CallScreen
     }
   }
 
