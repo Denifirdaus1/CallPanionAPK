@@ -19,6 +19,7 @@ class AppConstants {
   static const String keyHouseholdId = 'household_id';
   static const String keyRelativeId = 'relative_id';
   static const String keyPendingCall = 'pending_call';
+  static const String keySupabaseSession = 'supabase_session';
 
   // Call Types
   static const String callTypeInApp = 'in_app_call';

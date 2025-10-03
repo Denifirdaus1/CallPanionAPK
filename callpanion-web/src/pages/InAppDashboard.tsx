@@ -11,6 +11,7 @@ import { InAppCallScheduleManager } from "@/components/InAppCallScheduleManager"
 import { DevicePairingManager } from "@/components/DevicePairingManager";
 import { InAppCallScheduleSettings } from "@/components/InAppCallScheduleSettings";
 import { PairedDevicesStatus } from "@/components/PairedDevicesStatus";
+import { FamilyChatComponent } from "@/components/FamilyChatComponent";
 // ElevenLabsCallInterface removed - now using Flutter native
 
 interface Household {
@@ -423,6 +424,14 @@ const InAppDashboard = () => {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Family Chat Section */}
+            {households.length > 0 && relatives.length > 0 && (
+              <FamilyChatComponent 
+                householdId={households[0].id} 
+                relativeName={`${relatives[0].first_name} ${relatives[0].last_name}`}
+              />
+            )}
           </div>
 
           <div className="space-y-6">

@@ -186,7 +186,8 @@ serve(async (req) => {
             callLogId: callLog?.id,
             householdId: householdId,
             relativeId: relativeId,
-            relativeName: relative.first_name
+            relativeName: relative.first_name,
+            sessionId: session.id  // Added for compatibility with elevenlabs-conversation-token
           }),
           { 
             status: 200, 

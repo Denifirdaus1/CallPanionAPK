@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/callkit_service.dart';
 import 'services/fcm_service.dart';
 import 'services/permission_service.dart';
 import 'services/network_service.dart';
+import 'services/supabase_auth_service.dart';
 import 'screens/main_screen.dart';
 import 'screens/call_screen.dart';
 import 'models/call_data.dart';
@@ -13,6 +15,10 @@ import 'utils/constants.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // LAZY LOADING: Supabase initialization moved to when user opens chat/gallery
+  // This ensures app startup is fast and call screen is NEVER blocked
+  // Supabase will be initialized on-demand in main_screen.dart when needed
 
   // Initialize Firebase
   await Firebase.initializeApp();

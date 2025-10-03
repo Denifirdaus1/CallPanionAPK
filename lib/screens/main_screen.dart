@@ -2,15 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/callkit_service.dart';
 import '../services/fcm_service.dart';
 import '../services/api_service.dart';
 import '../services/app_lifecycle_service.dart';
+import '../services/supabase_auth_service.dart';
 import '../models/call_data.dart';
 import '../utils/constants.dart';
 import '../utils/connection_test.dart';
 // Removed webview_call_screen.dart import - using native ElevenLabs WebRTC only
 import 'pairing_screen.dart';
+import 'chat_screen.dart';
+import 'gallery_screen.dart';
+import '../services/chat_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -25,6 +30,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String _status = 'Checking device status...';
   String? _relativeName;
   CallData? _currentCall;
+  String? _householdId;
 
   @override
   void initState() {
@@ -73,6 +79,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         // Skip full initialization if recently done (within 10 minutes)
         // Just check device status quickly in background
         await _checkDeviceStatus();
+
+        // REMOVED: Supabase auth from quick init - moved to lazy loading
+        // This ensures call screen is NEVER blocked
 
         if (mounted) {
           setState(() {
@@ -123,6 +132,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     try {
       // Check device pairing status (essential)
       await _checkDeviceStatus();
+
+      // REMOVED: Supabase auth - moved to lazy loading (only when user opens chat/gallery)
+      // This ensures call screen is NEVER blocked by chat feature initialization
 
       // Register tokens with server (essential for notifications)
       await _registerTokens();
@@ -230,9 +242,18 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _relativeName = savedRelativeName;
       });
 
+      // Get household ID for chat
+      if (_isDevicePaired) {
+        final householdId = await ChatService.instance.getHouseholdId();
+        setState(() {
+          _householdId = householdId;
+        });
+      }
+
       if (kDebugMode) {
         print('📱 Device paired: $_isDevicePaired');
         print('📱 Relative name: $_relativeName');
+        print('📱 Household ID: $_householdId');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -265,6 +286,63 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error marking as initialized: $e');
+      }
+    }
+  }
+
+  /// LAZY LOADING: Initialize Supabase and authenticate when needed
+  /// This is called only when user opens chat or gallery features
+  Future<void> _ensureSupabaseAuth() async {
+    try {
+      // Only authenticate if device is paired
+      if (!_isDevicePaired) {
+        return;
+      }
+
+      // Try to get Supabase instance - if it throws, we need to initialize
+      try {
+        final _ = Supabase.instance.client;
+        if (kDebugMode) {
+          print('🔐 Supabase already initialized');
+        }
+      } catch (e) {
+        // Supabase not initialized yet - initialize now
+        if (kDebugMode) {
+          print('🔐 Initializing Supabase (lazy loading)...');
+        }
+        await Supabase.initialize(
+          url: 'https://umjtepmdwfyfhdzbkyli.supabase.co',
+          anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanRlcG1kd2Z5ZmhkemJreWxpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDUyNTksImV4cCI6MjA3MDQ4MTI1OX0.BhMkFrAOfeGw2ImHDXSTVmgM6P--L3lq9pNKDX3XzWE',
+        );
+        await SupabaseAuthService.instance.initialize();
+      }
+
+      // Check if already authenticated
+      if (SupabaseAuthService.instance.isAuthenticated) {
+        if (kDebugMode) {
+          print('🔐 Already authenticated with Supabase: ${SupabaseAuthService.instance.currentUserId}');
+        }
+        return;
+      }
+
+      // Sign in anonymously for chat access
+      if (kDebugMode) {
+        print('🔐 Authenticating with Supabase for chat access...');
+      }
+
+      final authSuccess = await SupabaseAuthService.instance.signInAnonymously();
+      if (authSuccess) {
+        if (kDebugMode) {
+          print('✅ Supabase authentication successful');
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ Supabase authentication failed');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error ensuring Supabase auth: $e');
       }
     }
   }
@@ -382,6 +460,60 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       context,
       MaterialPageRoute(
         builder: (context) => const PairingScreen(),
+      ),
+    );
+  }
+
+  void _navigateToChat() async {
+    if (_householdId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to load chat. Please try refreshing.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // LAZY LOADING: Ensure auth only when user opens chat
+    await _ensureSupabaseAuth();
+
+    if (!mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatScreen(
+          householdId: _householdId!,
+          relativeName: _relativeName ?? 'Your Family',
+        ),
+      ),
+    );
+  }
+
+  void _navigateToGallery() async {
+    if (_householdId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to load gallery. Please try refreshing.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // LAZY LOADING: Ensure auth only when user opens gallery
+    await _ensureSupabaseAuth();
+
+    if (!mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => GalleryScreen(
+          householdId: _householdId!,
+          relativeName: _relativeName ?? 'Your Family',
+        ),
       ),
     );
   }
@@ -536,6 +668,52 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               ),
 
               const SizedBox(height: 32),
+
+              // Chat and Gallery Buttons (only show when paired)
+              if (_isDevicePaired && _householdId != null) ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: _navigateToChat,
+                    icon: const Icon(Icons.chat_bubble, size: 24),
+                    label: const Text(
+                      'Open Family Chat',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 2,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton.icon(
+                    onPressed: _navigateToGallery,
+                    icon: const Icon(Icons.photo_library, size: 24),
+                    label: const Text(
+                      'Memories',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF8B5CF6),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 2,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // Test Connection Button (Debug)
               if (kDebugMode) ...[

@@ -39,7 +39,7 @@ class ConversationEvent {
     } else {
       throw ArgumentError('Invalid event data type: ${rawData.runtimeType}');
     }
-    
+
     final eventType = eventData['type'] as String;
     final data = eventData['data'] as Map<String, dynamic>? ?? {};
     final timestamp = DateTime.fromMillisecondsSinceEpoch(
@@ -391,20 +391,17 @@ class ElevenLabsCallService {
 
         final response = await http.post(
           Uri.parse(
-              '${AppConstants.supabaseUrl}/functions/v1/elevenlabs-conversation-token'),
+              '${AppConstants.supabaseUrl}/functions/v1/elevenlabs-device-call'),
           headers: {
             'Content-Type': 'application/json',
             'apikey': AppConstants.supabaseAnonKey,
             'Authorization': 'Bearer ${AppConstants.supabaseAnonKey}',
           },
           body: json.encode({
+            'action': 'start',
             'sessionId': sessionId,
             'pairingToken': pairingToken,
             'deviceToken': deviceToken,
-            'dynamicVariables': {
-              'call_type': 'in_app_call',
-              'device_call': 'true',
-            },
           }),
         );
 

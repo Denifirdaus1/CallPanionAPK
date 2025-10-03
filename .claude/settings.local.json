@@ -22,7 +22,9 @@
       "Bash(npx tavily-mcp:*)",
       "mcp__jina-mcp__read_url",
       "Read(//c/Official Elevenlabs SDK/elevenlabs-android/**)",
-      "Read(//c/Users/Deni/**)"
+      "Read(//c/Users/Deni/**)",
+      "Bash(nc localhost 62293)",
+      "Bash(tee:*)"
     ],
     "deny": [],
     "ask": []

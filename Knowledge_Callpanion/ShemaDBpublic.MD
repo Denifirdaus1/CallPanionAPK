@@ -225,6 +225,20 @@ CREATE TABLE public.case_notes (
   CONSTRAINT case_notes_pkey PRIMARY KEY (id),
   CONSTRAINT case_notes_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id)
 );
+CREATE TABLE public.chat_messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  household_id uuid NOT NULL,
+  sender_id uuid NOT NULL,
+  sender_type text NOT NULL CHECK (sender_type = ANY (ARRAY['family'::text, 'elderly'::text])),
+  message text,
+  message_type text NOT NULL DEFAULT 'text'::text CHECK (message_type = ANY (ARRAY['text'::text, 'image'::text])),
+  image_url text,
+  created_at timestamp with time zone DEFAULT now(),
+  read_at timestamp with time zone,
+  deleted_at timestamp with time zone,
+  CONSTRAINT chat_messages_pkey PRIMARY KEY (id),
+  CONSTRAINT chat_messages_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.households(id)
+);
 CREATE TABLE public.check_ins (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   elder_id uuid NOT NULL,
@@ -458,7 +472,7 @@ CREATE TABLE public.elder_access (
   elder_id uuid NOT NULL,
   user_id uuid NOT NULL,
   can_view_health boolean NOT NULL DEFAULT false,
-  CONSTRAINT elder_access_pkey PRIMARY KEY (elder_id, user_id),
+  CONSTRAINT elder_access_pkey PRIMARY KEY (user_id, elder_id),
   CONSTRAINT elder_access_elder_id_fkey FOREIGN KEY (elder_id) REFERENCES public.elders(id),
   CONSTRAINT elder_access_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );

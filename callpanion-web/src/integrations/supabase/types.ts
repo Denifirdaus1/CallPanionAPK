@@ -757,6 +757,53 @@ export type Database = {
           },
         ]
       }
+      chat_messages: {
+        Row: {
+          created_at: string | null
+          deleted_at: string | null
+          household_id: string
+          id: string
+          image_url: string | null
+          message: string | null
+          message_type: string
+          read_at: string | null
+          sender_id: string
+          sender_type: string
+        }
+        Insert: {
+          created_at?: string | null
+          deleted_at?: string | null
+          household_id: string
+          id?: string
+          image_url?: string | null
+          message?: string | null
+          message_type?: string
+          read_at?: string | null
+          sender_id: string
+          sender_type: string
+        }
+        Update: {
+          created_at?: string | null
+          deleted_at?: string | null
+          household_id?: string
+          id?: string
+          image_url?: string | null
+          message?: string | null
+          message_type?: string
+          read_at?: string | null
+          sender_id?: string
+          sender_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_household_id_fkey"
+            columns: ["household_id"]
+            isOneToOne: false
+            referencedRelation: "households"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       check_ins: {
         Row: {
           created_at: string
@@ -2530,6 +2577,72 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_queue: {
+        Row: {
+          created_at: string | null
+          device_token: string | null
+          error_details: Json | null
+          household_id: string
+          id: string
+          last_error: string | null
+          max_retries: number | null
+          notification_type: string
+          platform: string | null
+          processed_at: string | null
+          queue_time: string
+          relative_id: string
+          retry_count: number | null
+          schedule_id: string | null
+          scheduled_time: string
+          slot_type: string
+          status: string
+          updated_at: string | null
+          voip_token: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          device_token?: string | null
+          error_details?: Json | null
+          household_id: string
+          id?: string
+          last_error?: string | null
+          max_retries?: number | null
+          notification_type?: string
+          platform?: string | null
+          processed_at?: string | null
+          queue_time: string
+          relative_id: string
+          retry_count?: number | null
+          schedule_id?: string | null
+          scheduled_time: string
+          slot_type: string
+          status?: string
+          updated_at?: string | null
+          voip_token?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          device_token?: string | null
+          error_details?: Json | null
+          household_id?: string
+          id?: string
+          last_error?: string | null
+          max_retries?: number | null
+          notification_type?: string
+          platform?: string | null
+          processed_at?: string | null
+          queue_time?: string
+          relative_id?: string
+          retry_count?: number | null
+          schedule_id?: string | null
+          scheduled_time?: string
+          slot_type?: string
+          status?: string
+          updated_at?: string | null
+          voip_token?: string | null
+        }
+        Relationships: []
+      }
       org_users: {
         Row: {
           created_at: string
@@ -2910,6 +3023,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      scheduled_notifications: {
+        Row: {
+          created_at: string
+          device_token: string | null
+          executed_at: string | null
+          household_id: string
+          id: string
+          last_error: string | null
+          platform: string | null
+          relative_id: string
+          retry_count: number | null
+          schedule_id: string
+          scheduled_for: string
+          slot_type: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          device_token?: string | null
+          executed_at?: string | null
+          household_id: string
+          id?: string
+          last_error?: string | null
+          platform?: string | null
+          relative_id: string
+          retry_count?: number | null
+          schedule_id: string
+          scheduled_for: string
+          slot_type: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          device_token?: string | null
+          executed_at?: string | null
+          household_id?: string
+          id?: string
+          last_error?: string | null
+          platform?: string | null
+          relative_id?: string
+          retry_count?: number | null
+          schedule_id?: string
+          scheduled_for?: string
+          slot_type?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       schedules: {
         Row: {
@@ -3560,6 +3724,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: undefined
       }
+      cleanup_notification_queue: {
+        Args: Record<PropertyKey, never>
+        Returns: number
+      }
       create_household_and_relative_simple: {
         Args: {
           call_cadence_param?: string
@@ -3927,12 +4095,39 @@ export type Database = {
       rpc_find_due_schedules_next_min: {
         Args: Record<PropertyKey, never>
         Returns: {
+          execution_mode: string
           household_id: string
           phone_number: string
           relative_id: string
           run_at_unix: number
           schedule_id: string
           slot_type: string
+        }[]
+      }
+      rpc_find_ready_notifications: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          device_token: string
+          household_id: string
+          platform: string
+          queue_id: string
+          relative_id: string
+          retry_count: number
+          schedule_id: string
+          scheduled_time: string
+          slot_type: string
+          voip_token: string
+        }[]
+      }
+      rpc_find_schedules_to_queue: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          household_id: string
+          relative_id: string
+          schedule_id: string
+          scheduled_time: string
+          slot_type: string
+          timezone: string
         }[]
       }
       test_callpanion_setup: {

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/fcm_service.dart';
+import '../services/supabase_auth_service.dart';
 import '../utils/constants.dart';
 
 class PairingScreen extends StatefulWidget {
@@ -55,6 +56,22 @@ class _PairingScreenState extends State<PairingScreen> {
         await prefs.setString(AppConstants.keyRelativeName, result['relative_name'] ?? '');
         await prefs.setString(AppConstants.keyHouseholdId, result['household_id'] ?? '');
         await prefs.setString(AppConstants.keyRelativeId, result['relative_id'] ?? '');
+        
+        // IMPORTANT: Authenticate with Supabase so RLS policies work
+        if (kDebugMode) {
+          print('🔐 Authenticating with Supabase for chat access...');
+        }
+        
+        final authSuccess = await SupabaseAuthService.instance.signInAnonymously();
+        if (authSuccess) {
+          if (kDebugMode) {
+            print('✅ Supabase authentication successful');
+          }
+        } else {
+          if (kDebugMode) {
+            print('⚠️ Supabase authentication failed - chat may not work');
+          }
+        }
         
         // Re-register FCM token so backend links this device to the paired user
         try {
