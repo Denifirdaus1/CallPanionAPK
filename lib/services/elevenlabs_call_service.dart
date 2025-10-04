@@ -60,6 +60,9 @@ class ConversationEvent {
       case 'status_change':
         type = ConversationEventType.conversationEvent;
         break;
+      case 'conversationEnded':
+        type = ConversationEventType.conversationEnded;
+        break;
       case 'error':
         type = ConversationEventType.conversationFailed;
         break;

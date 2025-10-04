@@ -155,6 +155,71 @@ Deno.serve(async (req) => {
       call_status: data?.status || "unknown"
     });
 
+    // ============== HANDLE FULL_AUDIO WEBHOOK (no metadata) ==============
+    // ElevenLabs sends a separate webhook with only full_audio after call completion
+    const isFullAudioWebhook = data?.full_audio && 
+                               Object.keys(meta).length === 0 && 
+                               !data?.status;
+    
+    if (isFullAudioWebhook && provider_call_id) {
+      console.info("📼 FULL_AUDIO webhook detected - updating existing call log only:", {
+        provider_call_id,
+        has_audio: !!data.full_audio
+      });
+
+      // Determine provider for audio-only webhook (check agent_id if available)
+      const audioWebhookProvider = (agent_id === IN_APP_CALL_AGENT_ID) ? "webrtc" : "elevenlabs";
+      
+      // Always insert raw audit
+      await sb.from("webhook_events").insert({
+        provider: audioWebhookProvider,
+        provider_call_id,
+        household_id: null,
+        payload,
+        signature: sig ?? null,
+      });
+
+      // Try to find and update existing call log with audio data
+      const { data: existingLog } = await sb.from("call_logs")
+        .select("id, household_id, relative_id")
+        .eq("provider_call_id", provider_call_id)
+        .maybeSingle();
+
+      if (existingLog) {
+        const audioBase64 = data.full_audio;
+        
+        // Update call_logs with audio if available
+        if (audioBase64) {
+          await sb.from("call_logs")
+            .update({ audio_base64: audioBase64 })
+            .eq("id", existingLog.id);
+
+          console.info("✅ Updated call_logs with full_audio:", {
+            call_log_id: existingLog.id,
+            provider_call_id
+          });
+        }
+
+        // Update call_summaries with audio if available
+        if (audioBase64) {
+          await sb.from("call_summaries")
+            .update({ full_audio_base64: audioBase64 })
+            .eq("provider_call_id", provider_call_id);
+
+          console.info("✅ Updated call_summaries with full_audio:", {
+            provider_call_id
+          });
+        }
+      } else {
+        console.warn("⚠️ FULL_AUDIO webhook but no existing call_logs found - ignoring:", {
+          provider_call_id
+        });
+      }
+
+      // Return success - this is a legitimate webhook type
+      return new Response("ok-audio-only", { status: 200 });
+    }
+
     // DUPLICATE WEBHOOK PROTECTION: Check if this call was already processed successfully
     if (!household_id && !relative_id && provider_call_id) {
       const { data: existingLog } = await sb.from("call_logs")
@@ -178,59 +243,88 @@ Deno.serve(async (req) => {
     // ============== RESOLUTION LOGIC: Route by Call Type ==============
     // For in-app calls: try session-based resolution first
     if (isInAppCall && !household_id && !relative_id) {
-      // Try to extract session_id from conversation_id pattern for in-app calls
-      const extracted_session_id = session_id ||
-        (provider_call_id && provider_call_id.includes('session_') ?
-         provider_call_id.split('session_')[1]?.split('_')[0] : null);
-
-      if (extracted_session_id) {
-        console.info("Attempting session-based resolution for in-app call:", {
-          session_id: extracted_session_id,
-          provider_call_id
-        });
-
-        const { data: sessionData } = await sb.from("call_sessions")
-          .select("household_id, relative_id")
-          .eq("id", extracted_session_id)
+      console.info("🔍 IN-APP CALL: Attempting resolution via conversation_id lookup");
+      
+      // CRITICAL: elevenlabs-device-call stores conversation_id in conversation_id field with provider='webrtc'
+      // So we lookup using conversation_id field with webrtc provider
+      
+      if (provider_call_id) {
+        const { data: existingCallLog } = await sb.from("call_logs")
+          .select("household_id, relative_id, session_id")
+          .eq("provider_call_id", provider_call_id) // 👈 Changed from conversation_id to provider_call_id
+          .eq("provider", "webrtc") // Match the provider set by elevenlabs-device-call
+          .eq("call_type", "in_app_call")
           .maybeSingle();
 
-        if (sessionData) {
-          household_id = sessionData.household_id;
-          relative_id = sessionData.relative_id;
-          console.info("✅ IN-APP: Session resolved successfully:", {
-            session_id: extracted_session_id,
-            relative_id,
+        if (existingCallLog) {
+          household_id = existingCallLog.household_id;
+          relative_id = existingCallLog.relative_id;
+          console.info("✅ IN-APP: Found existing call log via conversation_id:", {
+            conversation_id: provider_call_id,
             household_id,
-            provider_call_id
+            relative_id,
+            session_id: existingCallLog.session_id
           });
         } else {
-          console.warn("No session found for in-app call:", {
+          console.warn("⚠️ IN-APP: No call_logs found for conversation_id:", provider_call_id);
+        }
+      }
+      
+      // Fallback: Try to extract session_id from conversation_id pattern
+      if (!household_id && !relative_id) {
+        const extracted_session_id = session_id ||
+          (provider_call_id && provider_call_id.includes('session_') ?
+           provider_call_id.split('session_')[1]?.split('_')[0] : null);
+
+        if (extracted_session_id) {
+          console.info("Attempting session-based resolution for in-app call:", {
             session_id: extracted_session_id,
             provider_call_id
           });
-        }
-      } else {
-        // Fallback: try to find recent in-app session without session_id
-        console.info("No session_id found, attempting recent session fallback for in-app call");
 
-        const { data: recentSessions } = await sb.from("call_sessions")
-          .select("household_id, relative_id, id")
-          .eq("provider", "webrtc")
-          .eq("call_type", "in_app_call")
-          .gte("created_at", new Date(Date.now() - 10 * 60 * 1000).toISOString()) // Last 10 minutes
-          .order("created_at", { ascending: false })
-          .limit(1);
+          const { data: sessionData } = await sb.from("call_sessions")
+            .select("household_id, relative_id")
+            .eq("id", extracted_session_id)
+            .maybeSingle();
 
-        if (recentSessions && recentSessions.length > 0) {
-          const recentSession = recentSessions[0];
-          household_id = recentSession.household_id;
-          relative_id = recentSession.relative_id;
-          console.info("✅ IN-APP FALLBACK: Recent session resolved:", {
-            session_id: recentSession.id,
-            relative_id,
-            household_id,
-            provider_call_id
-          });
+          if (sessionData) {
+            household_id = sessionData.household_id;
+            relative_id = sessionData.relative_id;
+            console.info("✅ IN-APP: Session resolved successfully:", {
+              session_id: extracted_session_id,
+              relative_id,
+              household_id,
+              provider_call_id
+            });
+          } else {
+            console.warn("No session found for in-app call:", {
+              session_id: extracted_session_id,
+              provider_call_id
+            });
+          }
+        } else {
+          // Final fallback: try to find recent in-app session without session_id
+          console.info("No session_id found, attempting recent session fallback for in-app call");
+
+          const { data: recentSessions } = await sb.from("call_sessions")
+            .select("household_id, relative_id, id")
+            .eq("provider", "webrtc")
+            .eq("call_type", "in_app_call")
+            .gte("created_at", new Date(Date.now() - 10 * 60 * 1000).toISOString()) // Last 10 minutes
+            .order("created_at", { ascending: false })
+            .limit(1);
+
+          if (recentSessions && recentSessions.length > 0) {
+            const recentSession = recentSessions[0];
+            household_id = recentSession.household_id;
+            relative_id = recentSession.relative_id;
+            console.info("✅ IN-APP FALLBACK: Recent session resolved:", {
+              session_id: recentSession.id,
+              relative_id,
+              household_id,
+              provider_call_id
+            });
+          }
         }
       }
     }
@@ -375,9 +469,12 @@ Deno.serve(async (req) => {
       duration: duration_secs
     });
 
+    // Determine provider based on call type
+    const webhookProvider = isInAppCall ? "webrtc" : "elevenlabs";
+    
     // 1) Always insert raw audit first (non-blocking)
     await sb.from("webhook_events").insert({
-      provider: "elevenlabs",
+      provider: webhookProvider,
       provider_call_id,
       household_id,
       payload,
@@ -420,8 +517,8 @@ Deno.serve(async (req) => {
         ? new Date(meta.start_time_unix_secs * 1000).toISOString()
         : new Date().toISOString();
 
-    // Choose provider based on call type for better organization
-    const logProvider = isInAppCall ? "webrtc" : "elevenlabs";
+    // Use webrtc provider for in-app calls to match elevenlabs-device-call
+    const logProvider = webhookProvider; // webrtc for in-app, elevenlabs for batch
     const callType = isInAppCall ? "in_app_call" : "batch_call";
 
     const { data: upLog, error: logErr } = await sb.from("call_logs")
@@ -438,6 +535,7 @@ Deno.serve(async (req) => {
         health_concerns_detected: !!(dc?.flag_fall_risk || dc?.flag_low_appetite || dc?.flag_confused),
         audio_recording_url: audioUrl,
         session_id: isInAppCall ? session_id : null,
+        // 👈 Removed conversation_id field to avoid schema cache error
         timestamp: occurred_at
       }, { onConflict: "provider,provider_call_id" })
       .select("id")
@@ -451,10 +549,13 @@ Deno.serve(async (req) => {
     }
     const moodScore = coerced;
 
-    // Extract detailed summary from ElevenLabs analysis
+    // Extract detailed summary from ElevenLabs analysis (following ElevenLabs docs)
     const detailedSummary = data?.summary ?? analysis?.summary ?? null;
     const tlDr = analysis?.transcript_summary ?? detailedSummary ?? null;
     const transcriptUrl = meta?.transcript_url ?? null;
+    
+    // Extract call success status from ElevenLabs analysis
+    const callSuccessful = analysis?.call_successful ?? null;
 
     // Extract notes and highlights from data collection
     const notes = dc?.notes ?? null;
@@ -475,6 +576,9 @@ Deno.serve(async (req) => {
 
     console.info("Summary data extracted:", {
       detailedSummary: !!detailedSummary,
+      tlDr: !!tlDr,
+      transcriptUrl: !!transcriptUrl,
+      callSuccessful: callSuccessful,
       notes: !!notes,
       highlight: !!highlight,
       moodText,
@@ -507,6 +611,7 @@ Deno.serve(async (req) => {
           notes,
           highlight,
           detailed_summary: detailedSummary,
+          call_successful: callSuccessful, // 👈 Add ElevenLabs call success status
           audio_url: audioUrl,
           audio_base64: audioBase64
         },

@@ -123,10 +123,11 @@ serve(async (req) => {
             user_id: relativeId,
             relative_id: relativeId,
             household_id: householdId,
-            call_outcome: 'initiating',
+            call_outcome: 'answered', // 👈 Changed from 'initiating' to 'answered'
             provider: 'webrtc',
             call_type: 'in_app_call',
             session_id: session.id,
+            provider_call_id: session.id, // 👈 Add provider_call_id for webhook lookup
             timestamp: new Date().toISOString()
           })
           .select()
@@ -187,7 +188,8 @@ serve(async (req) => {
             householdId: householdId,
             relativeId: relativeId,
             relativeName: relative.first_name,
-            sessionId: session.id  // Added for compatibility with elevenlabs-conversation-token
+            sessionId: session.id,  // Added for compatibility with elevenlabs-conversation-token
+            providerCallId: session.id  // 👈 Add provider_call_id for webhook
           }),
           { 
             status: 200, 
@@ -251,6 +253,7 @@ serve(async (req) => {
             .from('call_logs')
             .update({
               conversation_id: body.conversationId,
+              provider_call_id: body.conversationId, // 👈 Update provider_call_id with conversation_id
               updated_at: new Date().toISOString()
             })
             .eq('id', body.callLogId);
