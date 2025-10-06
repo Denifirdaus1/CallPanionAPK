@@ -41,10 +41,18 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void initState() {
     super.initState();
+
+    if (kDebugMode) {
+      print('🎙️ CallScreen initialized for session: ${widget.sessionId}');
+      print('🎙️ Call type: ${widget.callType}');
+    }
+
     // The call is already accepted at this point, so we're connecting
-    // Start connection immediately without delay
-    _connectToCall();
+    // Setup conversation events first
     _setupConversationEvents();
+
+    // Start connection immediately without delay - PRIORITIZE WebRTC CONNECTION
+    _connectToCall();
   }
 
   void _setupConversationEvents() {
@@ -99,6 +107,10 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _connectToCall() async {
+    if (kDebugMode) {
+      print('🎙️ Starting call connection process...');
+    }
+
     setState(() {
       _isCallActive = true;
       _callStartTime = DateTime.now();
@@ -107,20 +119,28 @@ class _CallScreenState extends State<CallScreen> {
     // Start duration timer
     _startDurationTimer();
 
-    // ElevenLabs WebRTC connection for in-app calls
+    // ElevenLabs WebRTC connection for in-app calls - HIGHEST PRIORITY
     if (widget.callType == AppConstants.callTypeInApp) {
-      // Check if ElevenLabs call is already active
-      final isActive = ElevenLabsCallService.instance.isCallActive;
       if (kDebugMode) {
-        print('🎙️ ElevenLabs WebRTC status: $isActive');
+        print('🎙️ PRIORITY: Starting ElevenLabs WebRTC connection...');
       }
 
-      // Start ElevenLabs call with optimized connection
+      // Check if ElevenLabs call is already active
+      final isActive = ElevenLabsCallService.instance.isCallActive;
+      if (isActive) {
+        if (kDebugMode) {
+          print('⚠️ ElevenLabs call already active - ending previous call first');
+        }
+        // End any existing call before starting new one
+        await ElevenLabsCallService.instance.forceEndCall(widget.sessionId);
+      }
+
+      // Start ElevenLabs call with optimized connection - NO DELAYS
       try {
         final result = await ElevenLabsCallService.instance
             .startElevenLabsCall(widget.sessionId);
         if (kDebugMode) {
-          print('🎙️ ElevenLabs WebRTC started: ${result != null}');
+          print('✅ ElevenLabs WebRTC started successfully: ${result != null}');
         }
       } catch (e) {
         if (kDebugMode) {
@@ -133,7 +153,7 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     if (kDebugMode) {
-      print('📞 Call connected: ${widget.sessionId}');
+      print('✅ Call connected: ${widget.sessionId}');
     }
   }
 

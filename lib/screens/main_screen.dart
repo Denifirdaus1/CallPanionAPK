@@ -8,9 +8,9 @@ import '../services/fcm_service.dart';
 import '../services/api_service.dart';
 import '../services/app_lifecycle_service.dart';
 import '../services/supabase_auth_service.dart';
+import '../services/permission_service.dart';
 import '../models/call_data.dart';
 import '../utils/constants.dart';
-import '../utils/connection_test.dart';
 // Removed webview_call_screen.dart import - using native ElevenLabs WebRTC only
 import 'pairing_screen.dart';
 import 'chat_screen.dart';
@@ -30,7 +30,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   String _status = 'Checking device status...';
   String? _relativeName;
   CallData? _currentCall;
-  String? _householdId;
+  // REMOVED: _householdId - now lazy loaded when user clicks chat/gallery button
 
   @override
   void initState() {
@@ -130,13 +130,16 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   /// Perform essential initialization tasks that are required for app to function
   Future<void> _performEssentialInitialization() async {
     try {
-      // Check device pairing status (essential)
+      // 1. Request ALL essential permissions FIRST (CRITICAL for calls)
+      await _requestEssentialPermissions();
+
+      // 2. Check device pairing status (essential)
       await _checkDeviceStatus();
 
       // REMOVED: Supabase auth - moved to lazy loading (only when user opens chat/gallery)
       // This ensures call screen is NEVER blocked by chat feature initialization
 
-      // Register tokens with server (essential for notifications)
+      // 3. Register tokens with server (essential for notifications)
       await _registerTokens();
 
       if (kDebugMode) {
@@ -145,6 +148,36 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error in essential initialization: $e');
+      }
+    }
+  }
+
+  /// Request essential permissions (microphone, notification, camera)
+  Future<void> _requestEssentialPermissions() async {
+    try {
+      if (kDebugMode) {
+        print('🎤 Requesting essential permissions...');
+      }
+
+      final results = await PermissionService.requestAllEssentialPermissions();
+
+      final micGranted = results['microphone'] ?? false;
+      final notifGranted = results['notification'] ?? false;
+      final cameraGranted = results['camera'] ?? false;
+
+      if (kDebugMode) {
+        print('✅ Permissions - Mic: $micGranted, Notif: $notifGranted, Camera: $cameraGranted');
+      }
+
+      // Update status if microphone denied (CRITICAL)
+      if (!micGranted && mounted) {
+        setState(() {
+          _status = 'Microphone permission required for calls';
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error requesting permissions: $e');
       }
     }
   }
@@ -242,18 +275,12 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _relativeName = savedRelativeName;
       });
 
-      // Get household ID for chat
-      if (_isDevicePaired) {
-        final householdId = await ChatService.instance.getHouseholdId();
-        setState(() {
-          _householdId = householdId;
-        });
-      }
+      // REMOVED: Household ID loading moved to lazy loading (when user clicks chat button)
+      // This ensures main screen loads FAST without any chat-related delays
 
       if (kDebugMode) {
         print('📱 Device paired: $_isDevicePaired');
         print('📱 Relative name: $_relativeName');
-        print('📱 Household ID: $_householdId');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -322,6 +349,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         if (kDebugMode) {
           print('🔐 Already authenticated with Supabase: ${SupabaseAuthService.instance.currentUserId}');
         }
+
+        // IMPORTANT: Even if already authenticated, ensure device_pairs is updated
+        // This handles the case where user was authenticated before the RLS fix
+        await SupabaseAuthService.instance.ensureDevicePairUpdated();
         return;
       }
 
@@ -435,26 +466,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _manualRefresh() async {
-    setState(() {
-      _isLoading = true;
-      _status = 'Refreshing...';
-    });
-
-    // Clear cache to force full initialization
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('last_init_time');
-
-    // Perform full initialization
-    await _performEssentialInitialization();
-
-    // Mark as initialized
-    await _markAsInitialized();
-
-    // Continue with background tasks
-    _performBackgroundTasks();
-  }
-
   void _navigateToPairing() {
     Navigator.push(
       context,
@@ -465,57 +476,79 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }
 
   void _navigateToChat() async {
-    if (_householdId == null) {
+    // INSTANT NAVIGATION: Navigate immediately, load data inside chat screen
+    if (kDebugMode) {
+      print('🔐 Chat button clicked - instant navigation...');
+    }
+
+    // LAZY LOADING: Get household ID quickly from SharedPreferences (sync)
+    final prefs = await SharedPreferences.getInstance();
+    final householdId = prefs.getString(AppConstants.keyHouseholdId);
+
+    if (householdId == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Unable to load chat. Please try refreshing.'),
+          content: Text('Unable to load chat. Please check your pairing.'),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
 
-    // LAZY LOADING: Ensure auth only when user opens chat
-    await _ensureSupabaseAuth();
-
     if (!mounted) return;
 
+    // INSTANT NAVIGATION: Navigate immediately without waiting for Supabase auth
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ChatScreen(
-          householdId: _householdId!,
-          relativeName: _relativeName ?? 'Your Family',
+          householdId: householdId,
+          householdName: null, // Will be fetched inside chat screen
         ),
       ),
     );
+
+    // BACKGROUND: Initialize Supabase after navigation (non-blocking)
+    _ensureSupabaseAuth();
   }
 
   void _navigateToGallery() async {
-    if (_householdId == null) {
+    // INSTANT NAVIGATION: Navigate immediately, load data inside gallery screen
+    if (kDebugMode) {
+      print('🖼️ Gallery button clicked - instant navigation...');
+    }
+
+    // LAZY LOADING: Get household ID quickly from SharedPreferences (sync)
+    final prefs = await SharedPreferences.getInstance();
+    final householdId = prefs.getString(AppConstants.keyHouseholdId);
+
+    if (householdId == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Unable to load gallery. Please try refreshing.'),
+          content: Text('Unable to load gallery. Please check your pairing.'),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
 
-    // LAZY LOADING: Ensure auth only when user opens gallery
-    await _ensureSupabaseAuth();
-
     if (!mounted) return;
 
+    // INSTANT NAVIGATION: Navigate immediately without waiting for Supabase auth
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => GalleryScreen(
-          householdId: _householdId!,
-          relativeName: _relativeName ?? 'Your Family',
+          householdId: householdId,
+          householdName: null, // Will be fetched inside gallery screen
         ),
       ),
     );
+
+    // BACKGROUND: Initialize Supabase after navigation (non-blocking)
+    _ensureSupabaseAuth();
   }
 
   @override
@@ -523,7 +556,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -669,8 +702,76 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
               const SizedBox(height: 32),
 
-              // Chat and Gallery Buttons (only show when paired)
-              if (_isDevicePaired && _householdId != null) ...[
+              // Microphone Permission Warning
+              FutureBuilder<bool>(
+                future: PermissionService.isMicrophoneGranted(),
+                builder: (context, snapshot) {
+                  final micGranted = snapshot.data ?? true;
+
+                  if (micGranted) return const SizedBox.shrink();
+
+                  return Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      border: Border.all(color: const Color(0xFFFCA5A5)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(
+                          Icons.mic_off,
+                          color: Color(0xFFDC2626),
+                          size: 32,
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Microphone Permission Required',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFDC2626),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Microphone is required for conversational calls',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF991B1B),
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              await PermissionService.openSettings();
+                            },
+                            icon: const Icon(Icons.settings, size: 16),
+                            label: const Text('Open Settings'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFDC2626),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+
+              // Chat and Gallery Buttons (only show when paired - NO LOADING REQUIRED)
+              if (_isDevicePaired) ...[
                 SizedBox(
                   width: double.infinity,
                   height: 56,
@@ -712,69 +813,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 48),
               ],
-
-              // Test Connection Button (Debug)
-              if (kDebugMode) ...[
-                ElevatedButton(
-                  onPressed: () async {
-                    final results = await ConnectionTest.testAllConnections();
-                    if (mounted) {
-                      showDialog(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Connection Test Results'),
-                          content: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: results.entries
-                                .map((entry) => Text(
-                                    '${entry.key}: ${entry.value ? "✅" : "❌"}'))
-                                .toList(),
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text('OK'),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Test Connections'),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              // Refresh Button
-              if (!_isLoading)
-                ElevatedButton.icon(
-                  onPressed: _manualRefresh,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Refresh Status'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-
-              // Loading Indicator
-              if (_isLoading)
-                const CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2563EB)),
-                ),
-
-              const SizedBox(height: 48),
 
               // Instructions
               Container(

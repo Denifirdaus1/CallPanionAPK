@@ -38,7 +38,8 @@ class GalleryService {
   factory GalleryService() => instance;
   GalleryService._internal();
 
-  final SupabaseClient _supabase = Supabase.instance.client;
+  // LAZY LOADING: Get Supabase client only when needed (after initialization)
+  SupabaseClient get _supabase => Supabase.instance.client;
 
   /// Load all images from chat messages for a household
   Future<List<GalleryImage>> loadGalleryImages(String householdId) async {
@@ -84,7 +85,7 @@ class GalleryService {
   }
 
   /// Download image to device gallery
-  Future<bool> downloadImageToGallery(String imageUrl, {String? fileName}) async {
+  Future<Map<String, dynamic>> downloadImageToGallery(String imageUrl, {String? fileName}) async {
     try {
       // Request storage permission
       final permissionStatus = await _requestStoragePermission();
@@ -92,7 +93,10 @@ class GalleryService {
         if (kDebugMode) {
           print('[GalleryService] Storage permission denied');
         }
-        return false;
+        return {
+          'success': false,
+          'message': 'Storage permission denied. Please enable it in app settings.',
+        };
       }
 
       if (kDebugMode) {
@@ -106,7 +110,10 @@ class GalleryService {
         if (kDebugMode) {
           print('[GalleryService] Failed to download image: ${response.statusCode}');
         }
-        return false;
+        return {
+          'success': false,
+          'message': 'Failed to download image (Error ${response.statusCode})',
+        };
       }
 
       // Save to temporary file
@@ -125,43 +132,98 @@ class GalleryService {
         print('[GalleryService] Image saved to gallery successfully');
       }
 
-      return true;
+      return {
+        'success': true,
+        'message': 'Image saved to gallery',
+      };
     } catch (e) {
       if (kDebugMode) {
         print('[GalleryService] Error downloading image: $e');
       }
-      return false;
+      return {
+        'success': false,
+        'message': 'Error: ${e.toString().split(':').first}',
+      };
     }
   }
 
   /// Request storage permission
   Future<bool> _requestStoragePermission() async {
     if (Platform.isAndroid) {
-      // For Android 13+ (API 33+), we need photos permission
-      if (await Permission.photos.isGranted) {
+      // Try photos permission first (Android 13+)
+      var photosStatus = await Permission.photos.status;
+      if (photosStatus.isGranted) {
+        if (kDebugMode) {
+          print('[GalleryService] ✅ Photos permission already granted');
+        }
         return true;
       }
 
-      final status = await Permission.photos.request();
+      // Request photos permission
+      photosStatus = await Permission.photos.request();
+      if (photosStatus.isGranted) {
+        if (kDebugMode) {
+          print('[GalleryService] ✅ Photos permission granted');
+        }
+        return true;
+      }
+
+      // If photos permission is permanently denied, try storage permission (older Android)
+      if (photosStatus.isPermanentlyDenied) {
+        if (kDebugMode) {
+          print('[GalleryService] Photos permission permanently denied, trying storage...');
+        }
+
+        var storageStatus = await Permission.storage.status;
+        if (storageStatus.isGranted) {
+          return true;
+        }
+
+        storageStatus = await Permission.storage.request();
+        if (storageStatus.isGranted) {
+          if (kDebugMode) {
+            print('[GalleryService] ✅ Storage permission granted');
+          }
+          return true;
+        }
+
+        // Open app settings if still denied
+        if (storageStatus.isPermanentlyDenied) {
+          if (kDebugMode) {
+            print('[GalleryService] Opening app settings for permission');
+          }
+          await openAppSettings();
+        }
+        return false;
+      }
+
+      if (kDebugMode) {
+        print('[GalleryService] ❌ Photos permission denied');
+      }
+      return false;
+    } else if (Platform.isIOS) {
+      // For iOS, photos permission
+      var status = await Permission.photos.status;
       if (status.isGranted) {
         return true;
       }
 
-      // Fallback to storage permission for older Android versions
-      if (await Permission.storage.isGranted) {
+      status = await Permission.photos.request();
+      if (status.isGranted) {
+        if (kDebugMode) {
+          print('[GalleryService] ✅ iOS Photos permission granted');
+        }
         return true;
       }
 
-      final storageStatus = await Permission.storage.request();
-      return storageStatus.isGranted;
-    } else if (Platform.isIOS) {
-      // For iOS, photos permission
-      if (await Permission.photos.isGranted) {
-        return true;
+      if (status.isPermanentlyDenied) {
+        if (kDebugMode) {
+          print('[GalleryService] Opening iOS app settings for permission');
+        }
+        await openAppSettings();
       }
 
-      final status = await Permission.photos.request();
-      return status.isGranted;
+      return false;
     }
 
     return false;
@@ -184,6 +246,39 @@ class GalleryService {
         print('[GalleryService] Error getting image count: $e');
       }
       return 0;
+    }
+  }
+
+  /// Get household name from household table
+  Future<String?> getHouseholdName(String householdId) async {
+    try {
+      if (kDebugMode) {
+        print('[GalleryService] Fetching household name for: $householdId');
+      }
+
+      final response = await _supabase
+          .from('households')
+          .select('name')
+          .eq('id', householdId)
+          .maybeSingle();
+
+      if (response != null && response['name'] != null) {
+        final householdName = response['name'] as String;
+        if (kDebugMode) {
+          print('[GalleryService] ✅ Household name: $householdName');
+        }
+        return householdName;
+      }
+
+      if (kDebugMode) {
+        print('[GalleryService] ❌ Household name not found');
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('[GalleryService] Error getting household name: $e');
+      }
+      return null;
     }
   }
 }

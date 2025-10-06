@@ -613,7 +613,7 @@ serve(async (req) => {
     // ========================================
     console.log('\n[Phase 1] 🔍 Checking for schedules to queue (5 min before execution)...');
 
-    const { data: schedulesToQueue, error: queueError } = await supabase
+    const { data: allSchedules, error: queueError } = await supabase
       .rpc('rpc_find_schedules_to_queue');
 
     if (queueError) {
@@ -621,9 +621,23 @@ serve(async (req) => {
       throw queueError;
     }
 
-    console.log(`[Phase 1] Found ${schedulesToQueue?.length || 0} schedules to queue`);
+    // ⚠️ FIX: Deduplicate schedules - only keep latest per relative
+    let schedulesToQueue: any[] = [];
+    if (allSchedules && allSchedules.length > 0) {
+      const uniqueMap = new Map();
+      allSchedules.forEach((schedule: any) => {
+        const existing = uniqueMap.get(schedule.relative_id);
+        if (!existing || new Date(schedule.scheduled_time) > new Date(existing.scheduled_time)) {
+          uniqueMap.set(schedule.relative_id, schedule);
+        }
+      });
+      schedulesToQueue = Array.from(uniqueMap.values());
+      console.log(`[Phase 1] Found ${allSchedules.length} schedules, deduplicated to ${schedulesToQueue.length} unique relatives`);
+    } else {
+      console.log(`[Phase 1] Found 0 schedules to queue`);
+    }
 
-    if (schedulesToQueue && schedulesToQueue.length > 0) {
+    if (schedulesToQueue.length > 0) {
       for (const schedule of schedulesToQueue) {
         const result = await queueNotificationWithDeviceInfo(supabase, schedule);
         if (result.success) {
@@ -639,7 +653,7 @@ serve(async (req) => {
     // ========================================
     console.log('\n[Phase 2] ⚡ Checking for ready notifications to execute...');
 
-    const { data: readyNotifications, error: readyError } = await supabase
+    const { data: allNotifications, error: readyError } = await supabase
       .rpc('rpc_find_ready_notifications');
 
     if (readyError) {
@@ -647,9 +661,23 @@ serve(async (req) => {
       throw readyError;
     }
 
-    console.log(`[Phase 2] Found ${readyNotifications?.length || 0} ready notifications`);
+    // ⚠️ FIX: Deduplicate notifications - only execute latest per relative
+    let readyNotifications: any[] = [];
+    if (allNotifications && allNotifications.length > 0) {
+      const uniqueMap = new Map();
+      allNotifications.forEach((notif: any) => {
+        const existing = uniqueMap.get(notif.relative_id);
+        if (!existing || new Date(notif.scheduled_time) > new Date(existing.scheduled_time)) {
+          uniqueMap.set(notif.relative_id, notif);
+        }
+      });
+      readyNotifications = Array.from(uniqueMap.values());
+      console.log(`[Phase 2] Found ${allNotifications.length} notifications, deduplicated to ${readyNotifications.length} unique relatives`);
+    } else {
+      console.log(`[Phase 2] Found 0 ready notifications`);
+    }
 
-    if (readyNotifications && readyNotifications.length > 0) {
+    if (readyNotifications.length > 0) {
       for (const notification of readyNotifications) {
         const result = await executeQueuedNotification(supabase, notification);
         if (result.success) {

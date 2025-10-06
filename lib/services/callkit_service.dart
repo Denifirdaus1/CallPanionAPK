@@ -236,7 +236,7 @@ class CallKitService {
           // Mark call as connected in CallKit
           await FlutterCallkitIncoming.setCallConnected(callUuid);
 
-          // Create and store call data
+          // Create call data
           final callData = CallData(
             sessionId: sessionId,
             relativeName: relativeName,
@@ -245,21 +245,20 @@ class CallKitService {
             relativeId: relativeId ?? '',
           );
 
-          // Store the call data for when app comes to foreground
-          await _storePendingCallData(callData);
-
           // Update current call
           _currentCall = callData;
+
+          // IMPORTANT: Clear any old pending call data to prevent auto-navigation on app restart
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove(AppConstants.keyPendingCall);
 
           // Navigate immediately if we have an onCallAccepted callback
           if (onCallAccepted != null && callType != null) {
             if (kDebugMode) {
-              print('📞 Triggering navigation callback...');
+              print('📞 Triggering navigation callback (direct from accept)...');
             }
-            // Small delay to ensure CallKit UI transition is complete
-            Future.delayed(const Duration(milliseconds: 100), () {
-              onCallAccepted!(sessionId, callType);
-            });
+            // Direct navigation without delay - prioritize call connection
+            onCallAccepted!(sessionId, callType);
           }
 
           // Note: ElevenLabs WebRTC call will be started in CallScreen
@@ -472,22 +471,9 @@ class CallKitService {
   // Getter for current call data
   CallData? get currentCall => _currentCall;
 
-  /// Store pending call data for app lifecycle management
-  Future<void> _storePendingCallData(CallData callData) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          AppConstants.keyPendingCall, callData.toJsonString());
-
-      if (kDebugMode) {
-        print('💾 Stored pending call data: ${callData.sessionId}');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error storing pending call data: $e');
-      }
-    }
-  }
+  /// REMOVED: _storePendingCallData() - no longer needed
+  /// Call navigation happens directly from CallKit accept event
+  /// No need to store pending call data for app lifecycle
 
   /// Helper method to safely convert Map<Object?, Object?> to Map<String, dynamic>
   Map<String, dynamic>? _convertMapToStringDynamic(dynamic input) {

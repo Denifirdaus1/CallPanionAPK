@@ -24,7 +24,9 @@
       "Read(//c/Official Elevenlabs SDK/elevenlabs-android/**)",
       "Read(//c/Users/Deni/**)",
       "Bash(nc localhost 62293)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(./gradlew:*)",
+      "Bash(echo \"Kamu perlu check di Supabase Dashboard:\n\n1. Table Editor -> device_pairs\n2. Find row dengan pair_token kamu\n3. Check kolom ''device_info'' - apakah ada ''anonymous_user_id''?\n\nAtau test SQL function langsung di SQL Editor:\n\nSELECT user_has_device_access_to_household(''87edadcb-3662-4ea6-a23f-4f62e74bb6a9''::uuid);\n\nHasilnya harus TRUE jika function bekerja dengan benar.\")"
     ],
     "deny": [],
     "ask": []

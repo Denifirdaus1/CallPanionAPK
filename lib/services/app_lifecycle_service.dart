@@ -58,8 +58,8 @@ class AppLifecycleService {
       print('📱 App resumed from background');
     }
 
-    // Check if there's a pending call to display
-    await _checkForPendingCall();
+    // REMOVED: _checkForPendingCall() - no longer needed
+    // Call handling is done directly by CallKit service
   }
 
   Future<void> _handleAppMovedToBackground() async {
@@ -75,64 +75,20 @@ class AppLifecycleService {
       print('📞 Incoming call accepted while in background: $data');
     }
 
-    // Store call data for when app resumes
-    final callData = CallData(
-      sessionId: data['sessionId']?.toString() ?? '',
-      relativeName: data['relativeName']?.toString() ?? 'Your Family',
-      callType: data['callType']?.toString() ?? AppConstants.callTypeInApp,
-      householdId: data['householdId']?.toString() ?? '',
-      relativeId: data['relativeId']?.toString() ?? '',
-    );
+    // REMOVED: Storing pending call data - no longer needed
+    // Navigation happens directly from CallKit accept event in CallKitService
+    // No need to store or resume pending calls via app lifecycle
 
-    // Always store the call data for proper handling
-    _pendingCall = callData;
-    await _storePendingCall(callData);
-
-    // Note: Navigation is now handled in main.dart to ensure direct navigation
-    // This prevents conflicts and ensures calls go directly to CallScreen
-  }
-
-  Future<void> _checkForPendingCall() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final pendingCallData = prefs.getString(AppConstants.keyPendingCall);
-
-      if (pendingCallData != null) {
-        // Clear stored pending call
-        await prefs.remove(AppConstants.keyPendingCall);
-
-        // Parse call data
-        final data = CallData.fromJsonString(pendingCallData);
-        if (data != null) {
-          if (kDebugMode) {
-            print('📞 Found pending call: ${data.sessionId}');
-          }
-          // Note: Navigation is now handled in main.dart to ensure direct navigation
-          // This prevents conflicts and ensures calls go directly to CallScreen
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error checking pending call: $e');
-      }
+    if (kDebugMode) {
+      print('📞 Call will be handled directly by CallKit service');
     }
   }
 
-  Future<void> _storePendingCall(CallData callData) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          AppConstants.keyPendingCall, callData.toJsonString());
+  /// REMOVED: _checkForPendingCall() - no longer needed
+  /// Call navigation happens directly from CallKit accept event
 
-      if (kDebugMode) {
-        print('💾 Stored pending call: ${callData.sessionId}');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error storing pending call: $e');
-      }
-    }
-  }
+  /// REMOVED: _storePendingCall() - no longer needed
+  /// No need to store pending call data
 
   Future<void> clearPendingCall() async {
     try {

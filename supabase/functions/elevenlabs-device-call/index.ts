@@ -80,61 +80,76 @@ serve(async (req) => {
           .eq('id', householdId)
           .single();
 
-        // Check if session already exists
+        // Clean up old sessions for this relative (but not the current one)
         const now = new Date().toISOString();
-        let session;
         
-        const { data: existingSession } = await supabase
+        // Step 1: Expire other active sessions for this relative
+        const { data: oldActiveSessions } = await supabase
           .from('call_sessions')
-          .select()
-          .eq('id', body.sessionId)
-          .single();
+          .select('id, status')
+          .eq('relative_id', relativeId)
+          .neq('id', body.sessionId)
+          .in('status', ['connecting', 'ringing', 'active', 'scheduled']);
         
-        if (existingSession) {
-          console.log('Session already exists, using existing:', body.sessionId);
-          session = existingSession;
-        } else {
-          // Create new session
-          const { data: newSession, error: sessionError } = await supabase
+        if (oldActiveSessions && oldActiveSessions.length > 0) {
+          console.log(`🧹 Expiring ${oldActiveSessions.length} old active sessions for relative ${relativeId}`);
+          await supabase
             .from('call_sessions')
-            .insert({
-              id: body.sessionId,
-              household_id: householdId,
-              relative_id: relativeId,
-              status: 'connecting',
-              provider: 'webrtc',
-              call_type: 'in_app_call',
-              scheduled_time: now,
-              created_at: now
+            .update({ 
+              status: 'expired', 
+              ended_at: now,
+              updated_at: now 
             })
-            .select()
-            .single();
+            .in('id', oldActiveSessions.map(s => s.id));
+        }
+        
+        // Step 3: UPSERT session - if it exists (from scheduler), update it; otherwise create new
+        console.log(`✨ Upserting session: ${body.sessionId}`);
+        const { data: session, error: sessionError } = await supabase
+          .from('call_sessions')
+          .upsert({
+            id: body.sessionId,
+            household_id: householdId,
+            relative_id: relativeId,
+            status: 'connecting',
+            provider: 'webrtc',
+            call_type: 'in_app_call',
+            scheduled_time: now,
+            started_at: now,
+            updated_at: now
+          }, {
+            onConflict: 'id',
+            ignoreDuplicates: false
+          })
+          .select()
+          .single();
 
-          if (sessionError) {
-            throw new Error(`Failed to create call session: ${sessionError.message}`);
-          }
-          session = newSession;
+        if (sessionError) {
+          throw new Error(`Failed to upsert call session: ${sessionError.message}`);
         }
 
-        // Create initial call log
+        // Upsert call log (may already exist from scheduler)
         const { data: callLog, error: logError } = await supabase
           .from('call_logs')
-          .insert({
+          .upsert({
             user_id: relativeId,
             relative_id: relativeId,
             household_id: householdId,
-            call_outcome: 'answered', // 👈 Changed from 'initiating' to 'answered'
+            call_outcome: 'answered',
             provider: 'webrtc',
             call_type: 'in_app_call',
             session_id: session.id,
-            provider_call_id: session.id, // 👈 Add provider_call_id for webhook lookup
+            provider_call_id: session.id,
             timestamp: new Date().toISOString()
+          }, {
+            onConflict: 'provider,provider_call_id',
+            ignoreDuplicates: false
           })
           .select()
           .single();
 
         if (logError) {
-          console.error('Failed to create call log:', logError);
+          console.error('Failed to upsert call log:', logError);
         }
 
         // Request conversation token from ElevenLabs using the correct API

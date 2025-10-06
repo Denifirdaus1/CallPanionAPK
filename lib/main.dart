@@ -62,15 +62,17 @@ class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> {
   void initState() {
     super.initState();
     _setupCallKitNavigation();
-    _checkForPendingCallOnStartup();
+    // REMOVED: _checkForPendingCallOnStartup() to prevent auto-navigation
+    // Call screen navigation ONLY happens from explicit CallKit accept event
   }
 
   void _setupCallKitNavigation() {
     // Set up CallKit callbacks for navigation - this takes priority over MainScreen
     CallKitService.instance.onCallAccepted = (sessionId, callType) {
       if (kDebugMode) {
-        print(
-            '📞 Call accepted in main.dart - navigating directly to CallScreen');
+        print('📞 ===== CALL ACCEPTED - PRIORITIZING NAVIGATION =====');
+        print('📞 Session ID: $sessionId');
+        print('📞 Call Type: $callType');
       }
 
       // Get current call data to extract relative name
@@ -78,13 +80,33 @@ class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> {
       final relativeName = currentCall?.relativeName ?? 'Family Member';
 
       if (kDebugMode) {
-        print('📞 Immediate navigation to CallScreen: $sessionId');
+        print('📞 Relative Name: $relativeName');
+        print('📞 IMMEDIATE navigation to CallScreen (no delays)');
       }
 
-      // Use post frame callback to ensure navigator is ready
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_navigatorKey.currentState != null) {
-          _navigatorKey.currentState!.push(
+      // PRIORITY: Navigate immediately - no post frame callback needed
+      // This ensures WebRTC connection starts as fast as possible
+      if (_navigatorKey.currentState != null) {
+        _navigatorKey.currentState!.push(
+          MaterialPageRoute(
+            builder: (context) => CallScreen(
+              sessionId: sessionId,
+              relativeName: relativeName,
+              callType: callType,
+            ),
+          ),
+        );
+
+        if (kDebugMode) {
+          print('✅ Navigation to CallScreen completed');
+        }
+      } else {
+        if (kDebugMode) {
+          print('⚠️ Navigator not ready, using post frame callback...');
+        }
+        // Fallback: Use post frame callback if navigator not ready yet
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _navigatorKey.currentState?.push(
             MaterialPageRoute(
               builder: (context) => CallScreen(
                 sessionId: sessionId,
@@ -93,57 +115,17 @@ class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> {
               ),
             ),
           );
-        } else {
-          if (kDebugMode) {
-            print('⚠️ Navigator not ready, retrying...');
-          }
-          // Retry after a short delay
-          Future.delayed(const Duration(milliseconds: 100), () {
-            _navigatorKey.currentState?.push(
-              MaterialPageRoute(
-                builder: (context) => CallScreen(
-                  sessionId: sessionId,
-                  relativeName: relativeName,
-                  callType: callType,
-                ),
-              ),
-            );
-          });
-        }
-      });
+        });
+      }
     };
   }
 
-  /// Check for pending calls when app starts
-  Future<void> _checkForPendingCallOnStartup() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final pendingCallData = prefs.getString(AppConstants.keyPendingCall);
-
-      if (pendingCallData != null) {
-        // Clear stored pending call
-        await prefs.remove(AppConstants.keyPendingCall);
-
-        // Parse call data
-        final callData = CallData.fromJsonString(pendingCallData);
-        if (callData != null) {
-          if (kDebugMode) {
-            print('📞 Found pending call on startup: ${callData.sessionId}');
-          }
-
-          // Navigate directly to call screen immediately after first frame
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _navigateToCallScreen(callData.sessionId, callData.callType);
-          });
-          return; // Exit early to skip showing MainScreen
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('❌ Error checking pending calls on startup: $e');
-      }
-    }
-  }
+  /// DISABLED: This function was causing auto-navigation to call screen on app open
+  /// Call navigation should ONLY happen from explicit CallKit accept event
+  /// Pending call data is now cleared immediately after use in CallKit service
+  // Future<void> _checkForPendingCallOnStartup() async {
+  //   // This function is intentionally disabled to prevent auto-call on app open
+  // }
 
   void _navigateToCallScreen(String sessionId, String callType) {
     // Get current call data to extract relative name

@@ -245,8 +245,8 @@ Deno.serve(async (req) => {
     if (isInAppCall && !household_id && !relative_id) {
       console.info("🔍 IN-APP CALL: Attempting resolution via conversation_id lookup");
       
-      // CRITICAL: elevenlabs-device-call stores conversation_id in conversation_id field with provider='webrtc'
-      // So we lookup using conversation_id field with webrtc provider
+      // CRITICAL: elevenlabs-device-call stores conversation_id in provider_call_id field with provider='webrtc'
+      // So we lookup using provider_call_id field with webrtc provider
       
       if (provider_call_id) {
         const { data: existingCallLog } = await sb.from("call_logs")

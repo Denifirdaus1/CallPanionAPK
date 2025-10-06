@@ -133,7 +133,7 @@ class SupabaseAuthService {
       if (existingPair != null && existingPair['device_info'] != null) {
         updatedDeviceInfo = Map<String, dynamic>.from(existingPair['device_info'] as Map);
       }
-
+      
       // Add/update the user ID fields
       updatedDeviceInfo['anonymous_user_id'] = userId;
       updatedDeviceInfo['supabase_user_id'] = userId;

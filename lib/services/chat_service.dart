@@ -12,34 +12,49 @@ class ChatService {
   factory ChatService() => instance;
   ChatService._internal();
 
-  final SupabaseClient _supabase = Supabase.instance.client;
+  // LAZY LOADING: Get Supabase client only when needed (after initialization)
+  SupabaseClient get _supabase => Supabase.instance.client;
   RealtimeChannel? _channel;
 
   // Callback untuk menerima pesan baru
   Function(ChatMessage)? onNewMessage;
 
   /// Load chat messages untuk household tertentu
-  Future<List<ChatMessage>> loadMessages(String householdId, {int limit = 50}) async {
+  Future<List<ChatMessage>> loadMessages(
+    String householdId, {
+    int limit = 50,
+    String? before,
+  }) async {
     try {
       if (kDebugMode) {
-        print('[ChatService] Loading messages for household: $householdId');
+        print('[ChatService] Loading messages for household: $householdId, before: $before');
       }
 
-      final response = await _supabase
+      var query = _supabase
           .from('chat_messages')
           .select()
           .eq('household_id', householdId)
-          .isFilter('deleted_at', null)
-          .order('created_at', ascending: true)
+          .isFilter('deleted_at', null);
+
+      // If before timestamp provided, load messages older than that
+      if (before != null) {
+        query = query.lt('created_at', before);
+      }
+
+      final response = await query
+          .order('created_at', ascending: false)
           .limit(limit);
 
       if (kDebugMode) {
         print('[ChatService] Loaded ${response.length} messages');
       }
 
-      return (response as List)
+      final messages = (response as List)
           .map((json) => ChatMessage.fromJson(json))
           .toList();
+      
+      // Reverse to show oldest first (ascending order for display)
+      return messages.reversed.toList();
     } catch (e) {
       if (kDebugMode) {
         print('[ChatService] Error loading messages: $e');
@@ -386,6 +401,39 @@ class ChatService {
     } catch (e) {
       if (kDebugMode) {
         print('[ChatService] Error getting household ID: $e');
+      }
+      return null;
+    }
+  }
+
+  /// Get household name from household table
+  Future<String?> getHouseholdName(String householdId) async {
+    try {
+      if (kDebugMode) {
+        print('[ChatService] Fetching household name for: $householdId');
+      }
+
+      final response = await _supabase
+          .from('households')
+          .select('name')
+          .eq('id', householdId)
+          .maybeSingle();
+
+      if (response != null && response['name'] != null) {
+        final householdName = response['name'] as String;
+        if (kDebugMode) {
+          print('[ChatService] ✅ Household name: $householdName');
+        }
+        return householdName;
+      }
+
+      if (kDebugMode) {
+        print('[ChatService] ❌ Household name not found');
+      }
+      return null;
+    } catch (e) {
+      if (kDebugMode) {
+        print('[ChatService] Error getting household name: $e');
       }
       return null;
     }

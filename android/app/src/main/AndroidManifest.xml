@@ -11,12 +11,22 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- Camera Permission (for future video calls) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
     <!-- WiFi state for WebRTC connectivity (ElevenLabs SDK) -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
     <!-- Bluetooth Permissions for Audio Routing (runtime permission Android 12+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- Storage Permissions for Gallery Download -->
+    <!-- For Android 13+ (API 33+) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- For Android 10-12 (API 29-32) -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 
     <!-- Android 14+ Foreground Service Permission -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />

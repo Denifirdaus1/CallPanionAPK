@@ -9,12 +9,12 @@ import '../services/gallery_service.dart';
 
 class GalleryScreen extends StatefulWidget {
   final String householdId;
-  final String relativeName;
+  final String? householdName;
 
   const GalleryScreen({
     super.key,
     required this.householdId,
-    required this.relativeName,
+    this.householdName,
   });
 
   @override
@@ -24,11 +24,29 @@ class GalleryScreen extends StatefulWidget {
 class _GalleryScreenState extends State<GalleryScreen> {
   final List<GalleryImage> _images = [];
   bool _isLoading = true;
+  String _householdName = 'Your Family';
 
   @override
   void initState() {
     super.initState();
-    _loadImages();
+    _initializeGallery();
+  }
+
+  Future<void> _initializeGallery() async {
+    // Fetch household name first (quick)
+    if (widget.householdName != null) {
+      _householdName = widget.householdName!;
+    } else {
+      final name = await GalleryService.instance.getHouseholdName(widget.householdId);
+      if (name != null && mounted) {
+        setState(() {
+          _householdName = name;
+        });
+      }
+    }
+
+    // Then load images
+    await _loadImages();
   }
 
   Future<void> _loadImages() async {
@@ -77,21 +95,33 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   Future<void> _downloadImage(GalleryImage image) async {
     try {
-      final success = await GalleryService.instance.downloadImageToGallery(
+      final result = await GalleryService.instance.downloadImageToGallery(
         image.url,
         fileName: 'callpanion_memory_${image.id}',
       );
 
       if (mounted) {
+        final success = result['success'] as bool;
+        final message = result['message'] as String;
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              success
-                  ? '✓ Image saved to gallery'
-                  : 'Failed to save image',
-            ),
+            content: Text(success ? '✓ $message' : message),
             backgroundColor: success ? const Color(0xFF10B981) : Colors.red,
-            duration: const Duration(seconds: 2),
+            duration: Duration(seconds: success ? 2 : 4),
+            action: !success && message.contains('permission')
+                ? SnackBarAction(
+                    label: 'Settings',
+                    textColor: Colors.white,
+                    onPressed: () async {
+                      // Permission handler will auto-open settings
+                      await GalleryService.instance.downloadImageToGallery(
+                        image.url,
+                        fileName: 'callpanion_memory_${image.id}',
+                      );
+                    },
+                  )
+                : null,
           ),
         );
       }
@@ -103,8 +133,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text('Error: ${e.toString().split(':').first}'),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -141,7 +172,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               ),
             ),
             Text(
-              '${_images.length} photos with ${widget.relativeName}',
+              '${_images.length} photos with $_householdName',
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.normal,
@@ -163,7 +194,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2563EB)),
+                color: Color(0xFF2563EB),
               ),
             )
           : _images.isEmpty
