@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../services/callkit_service.dart';
 import '../services/fcm_service.dart';
 import '../services/api_service.dart';
@@ -166,7 +167,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final cameraGranted = results['camera'] ?? false;
 
       if (kDebugMode) {
-        print('✅ Permissions - Mic: $micGranted, Notif: $notifGranted, Camera: $cameraGranted');
+        print(
+            '✅ Permissions - Mic: $micGranted, Notif: $notifGranted, Camera: $cameraGranted');
       }
 
       // Update status if microphone denied (CRITICAL)
@@ -339,7 +341,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         }
         await Supabase.initialize(
           url: 'https://umjtepmdwfyfhdzbkyli.supabase.co',
-          anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanRlcG1kd2Z5ZmhkemJreWxpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDUyNTksImV4cCI6MjA3MDQ4MTI1OX0.BhMkFrAOfeGw2ImHDXSTVmgM6P--L3lq9pNKDX3XzWE',
+          anonKey:
+              'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanRlcG1kd2Z5ZmhkemJreWxpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDUyNTksImV4cCI6MjA3MDQ4MTI1OX0.BhMkFrAOfeGw2ImHDXSTVmgM6P--L3lq9pNKDX3XzWE',
         );
         await SupabaseAuthService.instance.initialize();
       }
@@ -347,7 +350,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       // Check if already authenticated
       if (SupabaseAuthService.instance.isAuthenticated) {
         if (kDebugMode) {
-          print('🔐 Already authenticated with Supabase: ${SupabaseAuthService.instance.currentUserId}');
+          print(
+              '🔐 Already authenticated with Supabase: ${SupabaseAuthService.instance.currentUserId}');
         }
 
         // IMPORTANT: Even if already authenticated, ensure device_pairs is updated
@@ -361,7 +365,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         print('🔐 Authenticating with Supabase for chat access...');
       }
 
-      final authSuccess = await SupabaseAuthService.instance.signInAnonymously();
+      final authSuccess =
+          await SupabaseAuthService.instance.signInAnonymously();
       if (authSuccess) {
         if (kDebugMode) {
           print('✅ Supabase authentication successful');
@@ -554,44 +559,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // App Logo/Icon
-              Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2563EB),
-                  borderRadius: BorderRadius.circular(60),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF2563EB).withOpacity(0.3),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.phone,
-                  size: 60,
-                  color: Colors.white,
-                ),
-              ),
-
               const SizedBox(height: 32),
 
               // App Title
-              const Text(
-                'CallPanion',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF1E293B),
+              Text(
+                'Callpanion',
+                style: GoogleFonts.fraunces(
+                  fontSize: 42,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFFE38B6F),
                 ),
               ),
 
@@ -602,9 +585,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                 _relativeName != null
                     ? 'Hello, $_relativeName!'
                     : 'Stay Connected with Family',
-                style: const TextStyle(
+                style: GoogleFonts.fraunces(
                   fontSize: 18,
-                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w400,
+                  color: const Color(0xFF0F3B2E),
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -634,8 +618,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       height: 64,
                       decoration: BoxDecoration(
                         color: _isDevicePaired
-                            ? const Color(0xFF10B981).withOpacity(0.1)
-                            : const Color(0xFFF59E0B).withOpacity(0.1),
+                            ? const Color(0xFFE38B6F).withOpacity(0.1)
+                            : const Color(0xFFE38B6F).withOpacity(0.1),
                         borderRadius: BorderRadius.circular(32),
                       ),
                       child: Icon(
@@ -645,9 +629,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                                 ? Icons.check_circle
                                 : Icons.warning,
                         size: 32,
-                        color: _isDevicePaired
-                            ? const Color(0xFF10B981)
-                            : const Color(0xFFF59E0B),
+                        color: const Color(0xFFE38B6F),
                       ),
                     ),
 
@@ -656,10 +638,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                     // Status Text
                     Text(
                       _status,
-                      style: const TextStyle(
+                      style: GoogleFonts.fraunces(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: Color(0xFF374151),
+                        color: const Color(0xFFE38B6F),
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -673,9 +655,15 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         child: ElevatedButton.icon(
                           onPressed: () => _navigateToPairing(),
                           icon: const Icon(Icons.link),
-                          label: const Text('Pair Device'),
+                          label: Text(
+                            'Pair Device',
+                            style: GoogleFonts.fraunces(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2563EB),
+                            backgroundColor: const Color(0xFFE38B6F),
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -689,9 +677,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                       const SizedBox(height: 16),
                       Text(
                         'Call from ${_currentCall!.relativeName}',
-                        style: const TextStyle(
+                        style: GoogleFonts.fraunces(
                           fontSize: 14,
-                          color: Color(0xFF6B7280),
+                          fontWeight: FontWeight.w400,
+                          color: const Color(0xFF0F3B2E),
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -727,21 +716,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                           size: 32,
                         ),
                         const SizedBox(height: 8),
-                        const Text(
+                        Text(
                           'Microphone Permission Required',
-                          style: TextStyle(
+                          style: GoogleFonts.fraunces(
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Color(0xFFDC2626),
+                            color: const Color(0xFFDC2626),
                           ),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 4),
-                        const Text(
+                        Text(
                           'Microphone is required for conversational calls',
-                          style: TextStyle(
+                          style: GoogleFonts.fraunces(
                             fontSize: 12,
-                            color: Color(0xFF991B1B),
+                            fontWeight: FontWeight.w400,
+                            color: const Color(0xFF991B1B),
                           ),
                           textAlign: TextAlign.center,
                         ),
@@ -753,7 +743,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                               await PermissionService.openSettings();
                             },
                             icon: const Icon(Icons.settings, size: 16),
-                            label: const Text('Open Settings'),
+                            label: Text(
+                              'Open Settings',
+                              style: GoogleFonts.fraunces(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFFDC2626),
                               foregroundColor: Colors.white,
@@ -772,70 +768,111 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
 
               // Chat and Gallery Buttons (only show when paired - NO LOADING REQUIRED)
               if (_isDevicePaired) ...[
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton.icon(
-                    onPressed: _navigateToChat,
-                    icon: const Icon(Icons.chat_bubble, size: 24),
-                    label: const Text(
-                      'Open Family Chat',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF10B981),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: _navigateToChat,
+                      icon: Image.asset(
+                        'assets/icon/Chat.png',
+                        width: 20,
+                        height: 20,
+                        color: Colors.white,
+                        errorBuilder: (context, error, stackTrace) {
+                          // Fallback ke icon default jika Chat.png tidak ditemukan
+                          return const Icon(
+                            Icons.chat_bubble,
+                            size: 20,
+                            color: Colors.white,
+                          );
+                        },
                       ),
-                      elevation: 2,
+                      label: Text(
+                        'Open Family Chat',
+                        style: GoogleFonts.fraunces(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE38B6F),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        elevation: 1,
+                      ),
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton.icon(
-                    onPressed: _navigateToGallery,
-                    icon: const Icon(Icons.photo_library, size: 24),
-                    label: const Text(
-                      'Memories',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF8B5CF6),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      onPressed: _navigateToGallery,
+                      icon: const Icon(Icons.photo_library, size: 20),
+                      label: Text(
+                        'Your Gallery',
+                        style: GoogleFonts.fraunces(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      elevation: 2,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE38B6F),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        elevation: 1,
+                      ),
                     ),
                   ),
                 ),
                 const SizedBox(height: 48),
               ],
 
-              // Instructions
+              // Footer Info - Moved to bottom
               Container(
-                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(top: 32),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: const Color(0xFFE4B8AC),
+                    width: 1,
+                  ),
                 ),
-                child: const Column(
+                child: Column(
                   children: [
                     Icon(
                       Icons.info_outline,
-                      size: 24,
-                      color: Color(0xFF475569),
+                      size: 28,
+                      color: const Color(0xFFE38B6F),
                     ),
-                    SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Text(
-                      'Your family can call you anytime. You\'ll receive native call notifications even when the app is closed.',
-                      style: TextStyle(
+                      'Your family schedules 3 calls daily',
+                      style: GoogleFonts.fraunces(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF0F3B2E),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'You\'ll receive native call notifications and have conversations with Callpanion AI agent',
+                      style: GoogleFonts.fraunces(
                         fontSize: 14,
-                        color: Color(0xFF475569),
+                        fontWeight: FontWeight.w400,
+                        color: const Color(0xFF0F3B2E).withOpacity(0.7),
                       ),
                       textAlign: TextAlign.center,
                     ),

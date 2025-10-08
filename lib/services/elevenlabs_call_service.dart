@@ -41,7 +41,19 @@ class ConversationEvent {
     }
 
     final eventType = eventData['type'] as String;
-    final data = eventData['data'] as Map<String, dynamic>? ?? {};
+
+    // Safely convert nested data map from Map<Object?, Object?> to Map<String, dynamic>
+    final Map<String, dynamic> data;
+    if (eventData['data'] == null) {
+      data = {};
+    } else if (eventData['data'] is Map<String, dynamic>) {
+      data = eventData['data'] as Map<String, dynamic>;
+    } else if (eventData['data'] is Map) {
+      data = Map<String, dynamic>.from(eventData['data'] as Map);
+    } else {
+      data = {};
+    }
+
     final timestamp = DateTime.fromMillisecondsSinceEpoch(
         (eventData['timestamp'] as num?)?.toInt() ??
             DateTime.now().millisecondsSinceEpoch);

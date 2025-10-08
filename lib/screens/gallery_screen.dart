@@ -5,6 +5,7 @@ import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:flutter_layout_grid/flutter_layout_grid.dart';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../services/gallery_service.dart';
 
 class GalleryScreen extends StatefulWidget {
@@ -37,7 +38,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     if (widget.householdName != null) {
       _householdName = widget.householdName!;
     } else {
-      final name = await GalleryService.instance.getHouseholdName(widget.householdId);
+      final name =
+          await GalleryService.instance.getHouseholdName(widget.householdId);
       if (name != null && mounted) {
         setState(() {
           _householdName = name;
@@ -55,7 +57,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
     });
 
     try {
-      final images = await GalleryService.instance.loadGalleryImages(widget.householdId);
+      final images =
+          await GalleryService.instance.loadGalleryImages(widget.householdId);
       setState(() {
         _images.clear();
         _images.addAll(images);
@@ -72,7 +75,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to load gallery: $e'),
+            content: Text(
+              'Failed to load gallery: $e',
+              style: GoogleFonts.fraunces(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.white,
+              ),
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -106,8 +116,15 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(success ? '✓ $message' : message),
-            backgroundColor: success ? const Color(0xFF10B981) : Colors.red,
+            content: Text(
+              success ? '✓ $message' : message,
+              style: GoogleFonts.fraunces(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.white,
+              ),
+            ),
+            backgroundColor: success ? const Color(0xFFE38B6F) : Colors.red,
             duration: Duration(seconds: success ? 2 : 4),
             action: !success && message.contains('permission')
                 ? SnackBarAction(
@@ -133,7 +150,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: ${e.toString().split(':').first}'),
+            content: Text(
+              'Error: ${e.toString().split(':').first}',
+              style: GoogleFonts.fraunces(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.white,
+              ),
+            ),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
@@ -159,42 +183,105 @@ class _GalleryScreenState extends State<GalleryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Memories',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+      backgroundColor: Colors.white,
+      appBar: PreferredSize(
+        // 🔧 ATUR TINGGI HEADER DI SINI (default: 100)
+        preferredSize: const Size.fromHeight(100),
+        child: AppBar(
+          // 🔧 ATUR CENTER TITLE DI SINI (true/false)
+          centerTitle: true,
+          // 🔧 ATUR TITLE SPACING DI SINI (jarak kiri-kanan)
+          titleSpacing: 0,
+          // 🔧 ATUR TOOLBAR HEIGHT DI SINI (tinggi toolbar)
+          toolbarHeight: 100,
+          // 🔧 ATUR AUTOMATICALLY IMPLY LEADING DI SINI (true/false)
+          automaticallyImplyLeading: true,
+          // 🔧 TITLE DIPINDAH KE FLEXIBLE SPACE
+          flexibleSpace: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              // 🔧 ATUR SHADOW DI SINI (akan muncul saat scroll)
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Shared with you',
+                      style: GoogleFonts.fraunces(
+                        // 🔧 ATUR FONT SIZE HEADER DI SINI (default: 24)
+                        fontSize: 24,
+                        // 🔧 ATUR FONT WEIGHT HEADER DI SINI (w400, w500, w600, w700, w800)
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF0F3B2E),
+                      ),
+                    ),
+                    // 🔧 ATUR JARAK ANTARA HEADER DAN SUBHEADER DI SINI (default: 6)
+                    const SizedBox(height: 6),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 60.0),
+                      child: Text(
+                        'Stay close with family through photos and memories',
+                        style: GoogleFonts.fraunces(
+                          // 🔧 ATUR FONT SIZE SUBHEADER DI SINI (default: 14)
+                          fontSize: 14,
+                          // 🔧 ATUR FONT WEIGHT SUBHEADER DI SINI (w400, w500, w600)
+                          fontWeight: FontWeight.w400,
+                          color: const Color(0xFF0F3B2E).withOpacity(0.7),
+                        ),
+                        textAlign: TextAlign.center,
+                        // 🔧 ATUR MAX LINES SUBHEADER DI SINI (default: 2)
+                        maxLines: 2,
+                        // 🔧 ATUR OVERFLOW SUBHEADER DI SINI (ellipsis, clip, fade)
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            Text(
-              '${_images.length} photos with $_householdName',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.normal,
+          ),
+          backgroundColor: Colors.white,
+          foregroundColor: const Color(0xFF0F3B2E),
+          elevation: 0,
+          surfaceTintColor: Colors.white,
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(1),
+            child: Container(
+              height: 1,
+              color: const Color(0xFFE38B6F),
+            ),
+          ),
+          actions: [
+            Container(
+              height: 100,
+              child: SafeArea(
+                child: Center(
+                  child: IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _loadImages,
+                    tooltip: 'Refresh',
+                    color: const Color(0xFF0F3B2E),
+                  ),
+                ),
               ),
             ),
           ],
         ),
-        backgroundColor: const Color(0xFF2563EB),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadImages,
-            tooltip: 'Refresh',
-          ),
-        ],
       ),
       body: _isLoading
-          ? const Center(
+          ? Center(
               child: CircularProgressIndicator(
-                color: Color(0xFF2563EB),
+                color: const Color(0xFFE38B6F),
               ),
             )
           : _images.isEmpty
@@ -210,18 +297,19 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       const SizedBox(height: 16),
                       Text(
                         'No memories yet',
-                        style: TextStyle(
+                        style: GoogleFonts.fraunces(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
-                          color: Colors.grey[600],
+                          color: const Color(0xFF0F3B2E),
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
                         'Photos shared in chat will appear here',
-                        style: TextStyle(
+                        style: GoogleFonts.fraunces(
                           fontSize: 14,
-                          color: Colors.grey[500],
+                          fontWeight: FontWeight.w400,
+                          color: const Color(0xFF0F3B2E).withOpacity(0.7),
                         ),
                       ),
                     ],
@@ -241,79 +329,89 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       final image = _images[index];
                       return GestureDetector(
                         onTap: () => _openImageViewer(index),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Stack(
-                            children: [
-                              AspectRatio(
-                                aspectRatio: 1,
-                                child: CachedNetworkImage(
-                                  imageUrl: image.url,
-                                  fit: BoxFit.cover,
-                                  placeholder: (context, url) => Container(
-                                    color: Colors.grey[300],
-                                    child: const Center(
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFFE4B8AC),
+                              width: 1,
+                            ),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Stack(
+                              children: [
+                                AspectRatio(
+                                  aspectRatio: 1,
+                                  child: CachedNetworkImage(
+                                    imageUrl: image.url,
+                                    fit: BoxFit.cover,
+                                    placeholder: (context, url) => Container(
+                                      color: Colors.grey[300],
+                                      child: const Center(
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      ),
+                                    ),
+                                    errorWidget: (context, url, error) =>
+                                        Container(
+                                      color: Colors.grey[300],
+                                      child: const Icon(
+                                        Icons.error,
+                                        color: Colors.red,
                                       ),
                                     ),
                                   ),
-                                  errorWidget: (context, url, error) =>
-                                      Container(
-                                    color: Colors.grey[300],
-                                    child: const Icon(
-                                      Icons.error,
-                                      color: Colors.red,
-                                    ),
-                                  ),
                                 ),
-                              ),
-                              // Gradient overlay for text readability
-                              Positioned(
-                                bottom: 0,
-                                left: 0,
-                                right: 0,
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                      colors: [
-                                        Colors.transparent,
-                                        Colors.black.withOpacity(0.7),
+                                // Gradient overlay for text readability
+                                Positioned(
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                        colors: [
+                                          Colors.transparent,
+                                          Colors.black.withOpacity(0.7),
+                                        ],
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        if (image.caption != null &&
+                                            image.caption!.isNotEmpty)
+                                          Text(
+                                            image.caption!,
+                                            style: GoogleFonts.fraunces(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          _formatDate(image.createdAt),
+                                          style: GoogleFonts.fraunces(
+                                            color: Colors.white70,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w400,
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      if (image.caption != null &&
-                                          image.caption!.isNotEmpty)
-                                        Text(
-                                          image.caption!,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        _formatDate(image.createdAt),
-                                        style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -389,7 +487,10 @@ class _ImageViewerScreenState extends State<_ImageViewerScreen> {
         elevation: 0,
         title: Text(
           '${_currentIndex + 1} / ${widget.images.length}',
-          style: const TextStyle(fontSize: 16),
+          style: GoogleFonts.fraunces(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         actions: [
           IconButton(
@@ -419,7 +520,8 @@ class _ImageViewerScreenState extends State<_ImageViewerScreen> {
                 ),
                 minScale: PhotoViewComputedScale.contained,
                 maxScale: PhotoViewComputedScale.covered * 2,
-                heroAttributes: PhotoViewHeroAttributes(tag: widget.images[index].id),
+                heroAttributes:
+                    PhotoViewHeroAttributes(tag: widget.images[index].id),
               );
             },
             itemCount: widget.images.length,
@@ -463,7 +565,7 @@ class _ImageViewerScreenState extends State<_ImageViewerScreen> {
                         currentImage.caption!.isNotEmpty) ...[
                       Text(
                         currentImage.caption!,
-                        style: const TextStyle(
+                        style: GoogleFonts.fraunces(
                           color: Colors.white,
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
@@ -473,9 +575,10 @@ class _ImageViewerScreenState extends State<_ImageViewerScreen> {
                     ],
                     Text(
                       _formatDateTime(currentImage.createdAt),
-                      style: const TextStyle(
+                      style: GoogleFonts.fraunces(
                         color: Colors.white70,
                         fontSize: 14,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -483,10 +586,10 @@ class _ImageViewerScreenState extends State<_ImageViewerScreen> {
                       currentImage.senderType == 'family'
                           ? 'From Family'
                           : 'From You',
-                      style: TextStyle(
+                      style: GoogleFonts.fraunces(
                         color: currentImage.senderType == 'family'
-                            ? const Color(0xFF10B981)
-                            : const Color(0xFF2563EB),
+                            ? const Color(0xFFE38B6F)
+                            : const Color(0xFF0F3B2E),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),

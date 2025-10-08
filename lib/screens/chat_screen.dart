@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/chat_message.dart';
 import '../services/chat_service.dart';
 
@@ -47,7 +49,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (widget.householdName != null) {
       _householdName = widget.householdName!;
     } else {
-      final name = await ChatService.instance.getHouseholdName(widget.householdId);
+      final name = await _getHouseholdName();
       if (name != null && mounted) {
         setState(() {
           _householdName = name;
@@ -58,6 +60,29 @@ class _ChatScreenState extends State<ChatScreen> {
     // Then load messages and setup realtime
     await _loadMessages();
     _setupRealtimeSubscription();
+  }
+
+  Future<String?> _getHouseholdName() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('households')
+          .select('name')
+          .eq('id', widget.householdId)
+          .maybeSingle();
+
+      if (response != null) {
+        final householdName = response['name'] as String?;
+        if (kDebugMode) {
+          print('Household name: $householdName');
+        }
+        return householdName;
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error fetching household name: $e');
+      }
+    }
+    return null;
   }
 
   @override
@@ -98,7 +123,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final viewportHeight = _scrollController.position.viewportDimension;
 
     // Simple estimation: find message at current scroll position
-    final estimatedIndex = (scrollOffset / 80).floor().clamp(0, _messages.length - 1);
+    final estimatedIndex =
+        (scrollOffset / 80).floor().clamp(0, _messages.length - 1);
     if (estimatedIndex < _messages.length) {
       final message = _messages[estimatedIndex];
       final newDate = _formatFloatingDate(message.createdAt);
@@ -177,7 +203,8 @@ class _ChatScreenState extends State<ChatScreen> {
       // Restore scroll position to prevent jump
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.hasClients) {
-          _scrollController.jumpTo(currentScrollOffset + (olderMessages.length * 80));
+          _scrollController
+              .jumpTo(currentScrollOffset + (olderMessages.length * 80));
         }
       });
 
@@ -195,7 +222,8 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to load older messages: ${e.toString().split(':').first}'),
+            content: Text(
+                'Failed to load older messages: ${e.toString().split(':').first}'),
             backgroundColor: Colors.red,
           ),
         );
@@ -209,7 +237,8 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
-      final messages = await ChatService.instance.loadMessages(widget.householdId);
+      final messages =
+          await ChatService.instance.loadMessages(widget.householdId);
       setState(() {
         _messages.clear();
         _messages.addAll(messages);
@@ -260,8 +289,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
     setState(() {
       // Remove temporary message if exists
-      _messages.removeWhere((m) =>
-          m.id.startsWith('temp-') && m.message == message.message);
+      _messages.removeWhere(
+          (m) => m.id.startsWith('temp-') && m.message == message.message);
 
       _messages.add(message);
     });
@@ -368,42 +397,41 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) {
         // Check if it's RLS policy error
         final isRLSError = e.toString().contains('row-level security') ||
-                          e.toString().contains('42501');
+            e.toString().contains('42501');
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              isRLSError
+            content: Text(isRLSError
                 ? 'Permission denied. Please contact support to enable chat for this device.'
-                : 'Failed to send message: ${e.toString().split(':').first}'
-            ),
+                : 'Failed to send message: ${e.toString().split(':').first}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
-            action: isRLSError ? SnackBarAction(
-              label: 'Info',
-              textColor: Colors.white,
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Chat Permission Required'),
-                    content: const Text(
-                      'Your device needs permission to send messages.\n\n'
-                      'Please ask your family member to:\n'
-                      '1. Open the web dashboard\n'
-                      '2. Enable chat permissions for this device\n\n'
-                      'Or contact CallPanion support.'
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('OK'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ) : null,
+            action: isRLSError
+                ? SnackBarAction(
+                    label: 'Info',
+                    textColor: Colors.white,
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Chat Permission Required'),
+                          content: const Text(
+                              'Your device needs permission to send messages.\n\n'
+                              'Please ask your family member to:\n'
+                              '1. Open the web dashboard\n'
+                              '2. Enable chat permissions for this device\n\n'
+                              'Or contact CallPanion support.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('OK'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  )
+                : null,
           ),
         );
       }
@@ -455,7 +483,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-
   Widget _buildMessageBubble(ChatMessage message) {
     // FIXED: In Flutter APK, 'elderly' sender is YOU (on the right)
     // 'family' sender is relatives/household members (on the left)
@@ -471,15 +498,16 @@ class _ChatScreenState extends State<ChatScreen> {
           if (!isFromYou) ...[
             // Avatar for family/household (on the left)
             CircleAvatar(
-              backgroundColor: Colors.grey[300],
+              backgroundColor: const Color(0xFFE4B8AC),
               radius: 16,
               child: Text(
                 _householdName.isNotEmpty
                     ? _householdName[0].toUpperCase()
                     : 'F',
-                style: const TextStyle(
+                style: GoogleFonts.fraunces(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -487,18 +515,18 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
           Flexible(
             child: Column(
-              crossAxisAlignment: isFromYou
-                  ? CrossAxisAlignment.end
-                  : CrossAxisAlignment.start,
+              crossAxisAlignment:
+                  isFromYou ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               children: [
                 // Sender name
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8.0),
                   child: Text(
                     isFromYou ? 'You' : _householdName,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
+                    style: GoogleFonts.fraunces(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF0F3B2E).withOpacity(0.8),
                     ),
                   ),
                 ),
@@ -513,15 +541,23 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                     decoration: BoxDecoration(
                       color: isFromYou
-                          ? const Color(0xFF2563EB)
-                          : Colors.grey[200],
+                          ? const Color(0xFFE38B6F)
+                          : const Color(0xFFF8F9FA),
                       borderRadius: BorderRadius.circular(16),
+                      border: isFromYou
+                          ? null
+                          : Border.all(
+                              color: const Color(0xFFE4B8AC),
+                              width: 1,
+                            ),
                     ),
                     child: Text(
                       message.message ?? '',
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: isFromYou ? Colors.white : Colors.black87,
+                      style: GoogleFonts.fraunces(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w400,
+                        color:
+                            isFromYou ? Colors.white : const Color(0xFF0F3B2E),
                       ),
                     ),
                   )
@@ -580,16 +616,24 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                           decoration: BoxDecoration(
                             color: isFromYou
-                                ? const Color(0xFF2563EB)
-                                : Colors.grey[200],
+                                ? const Color(0xFFE38B6F)
+                                : const Color(0xFFF8F9FA),
                             borderRadius: BorderRadius.circular(16),
+                            border: isFromYou
+                                ? null
+                                : Border.all(
+                                    color: const Color(0xFFE4B8AC),
+                                    width: 1,
+                                  ),
                           ),
                           child: Text(
                             message.message!,
-                            style: TextStyle(
-                              fontSize: 15,
-                              color:
-                                  isFromYou ? Colors.white : Colors.black87,
+                            style: GoogleFonts.fraunces(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w400,
+                              color: isFromYou
+                                  ? Colors.white
+                                  : const Color(0xFF0F3B2E),
                             ),
                           ),
                         ),
@@ -605,9 +649,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   child: Text(
                     _formatTime(message.createdAt),
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey[600],
+                    style: GoogleFonts.fraunces(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: const Color(0xFF0F3B2E).withOpacity(0.7),
                     ),
                   ),
                 ),
@@ -618,11 +663,11 @@ class _ChatScreenState extends State<ChatScreen> {
             const SizedBox(width: 8),
             // Avatar for YOU (elderly user) on the right
             CircleAvatar(
-              backgroundColor: const Color(0xFF2563EB),
+              backgroundColor: const Color(0xFFE38B6F),
               radius: 16,
-              child: const Text(
+              child: Text(
                 'Y',
-                style: TextStyle(
+                style: GoogleFonts.fraunces(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
@@ -638,12 +683,41 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text('Family Chat'),
-        backgroundColor: const Color(0xFF2563EB),
-        foregroundColor: Colors.white,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Family Chat',
+              style: GoogleFonts.fraunces(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFFE38B6F),
+              ),
+            ),
+            if (_householdName != 'Your Family')
+              Text(
+                _householdName,
+                style: GoogleFonts.fraunces(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                  color: const Color(0xFF0F3B2E).withOpacity(0.7),
+                ),
+              ),
+          ],
+        ),
+        backgroundColor: Colors.white,
+        foregroundColor: const Color(0xFF0F3B2E),
         elevation: 0,
+        surfaceTintColor: Colors.white,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(
+            height: 1,
+            color: const Color(0xFFE38B6F),
+          ),
+        ),
       ),
       body: Column(
         children: [
@@ -668,17 +742,19 @@ class _ChatScreenState extends State<ChatScreen> {
                             const SizedBox(height: 16),
                             Text(
                               'No messages yet',
-                              style: TextStyle(
+                              style: GoogleFonts.fraunces(
                                 fontSize: 16,
-                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF0F3B2E),
                               ),
                             ),
                             const SizedBox(height: 8),
                             Text(
                               'Start the conversation!',
-                              style: TextStyle(
+                              style: GoogleFonts.fraunces(
                                 fontSize: 14,
-                                color: Colors.grey[500],
+                                fontWeight: FontWeight.w400,
+                                color: const Color(0xFF0F3B2E).withOpacity(0.7),
                               ),
                             ),
                           ],
@@ -690,7 +766,8 @@ class _ChatScreenState extends State<ChatScreen> {
                             children: [
                               if (_isLoadingMore)
                                 Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
                                   child: const Center(
                                     child: SizedBox(
                                       width: 20,
@@ -708,7 +785,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                   padding: const EdgeInsets.all(16),
                                   itemCount: _messages.length,
                                   itemBuilder: (context, index) {
-                                    return _buildMessageBubble(_messages[index]);
+                                    return _buildMessageBubble(
+                                        _messages[index]);
                                   },
                                 ),
                               ),
@@ -723,19 +801,30 @@ class _ChatScreenState extends State<ChatScreen> {
                               child: Center(
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 6,
+                                    horizontal: 20,
+                                    vertical: 10,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.6),
-                                    borderRadius: BorderRadius.circular(20),
+                                    color: Colors.white.withOpacity(0.9),
+                                    borderRadius: BorderRadius.circular(25),
+                                    border: Border.all(
+                                      color: const Color(0xFFE4B8AC),
+                                      width: 1,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.1),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
                                   ),
                                   child: Text(
                                     _floatingDate,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
+                                    style: GoogleFonts.fraunces(
+                                      color: const Color(0xFF0F3B2E),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
@@ -743,14 +832,37 @@ class _ChatScreenState extends State<ChatScreen> {
                             ),
                           if (_showScrollButton)
                             Positioned(
-                              bottom: 16,
-                              right: 16,
-                              child: FloatingActionButton.small(
-                                onPressed: _scrollToBottom,
-                                backgroundColor: const Color(0xFF2563EB),
-                                child: const Icon(
-                                  Icons.arrow_downward,
-                                  color: Colors.white,
+                              bottom: 24,
+                              right: 24,
+                              child: Container(
+                                width: 56,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.9),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: const Color(0xFFE4B8AC),
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.1),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(28),
+                                    onTap: _scrollToBottom,
+                                    child: const Icon(
+                                      Icons.arrow_downward,
+                                      color: Color(0xFF0F3B2E),
+                                      size: 24,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
@@ -824,13 +936,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     // Input row
                     Row(
                       children: [
-                        // Image picker button
-                        IconButton(
-                          onPressed: _isSending ? null : _pickImage,
-                          icon: const Icon(Icons.image),
-                          color: const Color(0xFF2563EB),
-                        ),
-
                         // Text field
                         Expanded(
                           child: TextField(
@@ -840,16 +945,39 @@ class _ChatScreenState extends State<ChatScreen> {
                               hintText: _imagePreview != null
                                   ? 'Add a caption (optional)...'
                                   : 'Type a message...',
+                              hintStyle: GoogleFonts.fraunces(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w400,
+                                color: const Color(0xFF0F3B2E).withOpacity(0.5),
+                              ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(24),
                                 borderSide: BorderSide(
-                                  color: Colors.grey[300]!,
+                                  color: const Color(0xFFE4B8AC),
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide(
+                                  color: const Color(0xFFE4B8AC),
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide(
+                                  color: const Color(0xFFE38B6F),
+                                  width: 2,
                                 ),
                               ),
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 16,
                                 vertical: 10,
                               ),
+                            ),
+                            style: GoogleFonts.fraunces(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w400,
+                              color: const Color(0xFF0F3B2E),
                             ),
                             maxLines: null,
                             textCapitalization: TextCapitalization.sentences,
@@ -859,10 +987,25 @@ class _ChatScreenState extends State<ChatScreen> {
 
                         const SizedBox(width: 8),
 
+                        // Image picker button
+                        Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE4B8AC),
+                            shape: BoxShape.circle,
+                          ),
+                          child: IconButton(
+                            onPressed: _isSending ? null : _pickImage,
+                            icon: const Icon(Icons.image),
+                            color: Colors.white,
+                          ),
+                        ),
+
+                        const SizedBox(width: 8),
+
                         // Send button
                         Container(
                           decoration: const BoxDecoration(
-                            color: Color(0xFF2563EB),
+                            color: Color(0xFFE38B6F),
                             shape: BoxShape.circle,
                           ),
                           child: IconButton(

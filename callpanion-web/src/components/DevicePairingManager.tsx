@@ -6,9 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { Smartphone, QrCode, Copy, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
+import { Smartphone, QrCode as QrCodeIcon, Copy, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCallMethodAccess } from "@/hooks/useCallMethodAccess";
+import QRCode from "react-qr-code";
 
 interface PairingToken {
   id: string;
@@ -35,6 +36,7 @@ export const DevicePairingManager = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedTokenForQR, setSelectedTokenForQR] = useState<PairingToken | null>(null);
   const { toast } = useToast();
   const { hasInAppCallAccess, isLoading: accessLoading } = useCallMethodAccess();
 
@@ -177,15 +179,25 @@ export const DevicePairingManager = () => {
     return { label: "Active", color: "bg-blue-100 text-blue-800" };
   };
 
+  const showQRCodeDialog = (token: PairingToken) => {
+    setSelectedTokenForQR(token);
+  };
+
+  const getRelativeName = (relativeId?: string) => {
+    if (!relativeId) return 'Unknown';
+    const relative = relatives.find(r => r.id === relativeId);
+    return relative ? `${relative.first_name} ${relative.last_name}` : 'Unknown';
+  };
+
   if (accessLoading || isLoading) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <QrCode className="h-5 w-5" />
-            <span>Device Pairing</span>
-          </CardTitle>
-        </CardHeader>
+      <CardHeader>
+        <CardTitle className="flex items-center space-x-2">
+          <QrCodeIcon className="h-5 w-5" />
+          <span>Device Pairing</span>
+        </CardTitle>
+      </CardHeader>
         <CardContent>
           <div className="text-center py-8">
             <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
@@ -199,31 +211,31 @@ export const DevicePairingManager = () => {
   if (!hasInAppCallAccess) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <QrCode className="h-5 w-5" />
-            <span>Device Pairing</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Device pairing is only available for households with in-app call access.
-            </AlertDescription>
-          </Alert>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
-          <QrCode className="h-5 w-5" />
+          <QrCodeIcon className="h-5 w-5" />
           <span>Device Pairing</span>
         </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Device pairing is only available for households with in-app call access.
+          </AlertDescription>
+        </Alert>
+      </CardContent>
+    </Card>
+  );
+}
+
+return (
+  <Card>
+    <CardHeader>
+      <CardTitle className="flex items-center space-x-2">
+        <QrCodeIcon className="h-5 w-5" />
+        <span>Device Pairing</span>
+      </CardTitle>
         <CardDescription>
           Generate permanent pairing tokens to connect elderly devices to the CallPanion app
         </CardDescription>
@@ -268,17 +280,17 @@ export const DevicePairingManager = () => {
                 disabled={!selectedRelative || isGenerating}
                 className="w-full"
               >
-                {isGenerating ? (
-                  <>
-                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2" />
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <QrCode className="h-4 w-4 mr-2" />
-                    Generate Token
-                  </>
-                )}
+              {isGenerating ? (
+                <>
+                  <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full mr-2" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <QrCodeIcon className="h-4 w-4 mr-2" />
+                  Generate Token
+                </>
+              )}
               </Button>
             </div>
           </DialogContent>
@@ -301,7 +313,7 @@ export const DevicePairingManager = () => {
 
           {pairingTokens.length === 0 ? (
             <div className="text-center py-6 border border-dashed rounded-lg">
-              <QrCode className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+              <QrCodeIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">No pairing tokens generated yet</p>
             </div>
           ) : (
@@ -319,20 +331,30 @@ export const DevicePairingManager = () => {
                           {new Date(token.created_at).toLocaleDateString()}
                         </span>
                       </div>
-                      {!token.claimed_at && (
+                      <div className="flex items-center space-x-2">
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => copyToClipboard(token.code_6)}
+                          onClick={() => showQRCodeDialog(token)}
                         >
-                          <Copy className="h-4 w-4 mr-1" />
-                          Copy
+                          <QrCodeIcon className="h-4 w-4 mr-1" />
+                          Show QR
                         </Button>
-                      )}
+                        {!token.claimed_at && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => copyToClipboard(token.code_6)}
+                          >
+                            <Copy className="h-4 w-4 mr-1" />
+                            Copy
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     
                     <div className="bg-muted/30 rounded p-2">
-                      <p className="text-xs font-mono break-all">
+                      <p className="text-xs font-mono break-all text-center">
                         {token.code_6}
                       </p>
                     </div>
@@ -352,9 +374,58 @@ export const DevicePairingManager = () => {
           <Smartphone className="h-4 w-4" />
           <AlertDescription>
             <strong>How to use:</strong> Generate a pairing token and share it with your elderly relative. 
-            They can enter this token in their CallPanion mobile app to connect their device for in-app calls.
+            They can enter this token manually or scan the QR code in their CallPanion mobile app to connect their device for in-app calls.
           </AlertDescription>
         </Alert>
+
+        {/* QR Code Dialog */}
+        <Dialog open={!!selectedTokenForQR} onOpenChange={() => setSelectedTokenForQR(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-center">Scan QR Code to Pair Device</DialogTitle>
+              <DialogDescription className="text-center">
+                {selectedTokenForQR && (
+                  <>Pairing code for {getRelativeName(selectedTokenForQR.relative_id)}</>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedTokenForQR && (
+              <div className="space-y-4">
+                {/* QR Code Display */}
+                <div className="flex justify-center py-6 bg-white rounded-lg border-2">
+                  <QRCode 
+                    value={selectedTokenForQR.code_6} 
+                    size={280}
+                    level="H"
+                  />
+                </div>
+                
+                {/* Token Code Display */}
+                <div className="text-center space-y-2">
+                  <p className="text-sm text-muted-foreground">Or enter this code manually:</p>
+                  <div className="bg-muted/50 rounded-lg p-4">
+                    <p className="text-2xl font-mono font-bold tracking-wider">
+                      {selectedTokenForQR.code_6}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Copy Button */}
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    copyToClipboard(selectedTokenForQR.code_6);
+                  }}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy Pairing Code
+                </Button>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );

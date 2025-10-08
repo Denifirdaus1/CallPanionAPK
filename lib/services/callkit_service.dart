@@ -43,11 +43,11 @@ class CallKitService {
     try {
       // Request notification permissions
       await FlutterCallkitIncoming.requestNotificationPermission({
-        'title': 'CallPanion Notification',
+        'title': 'Callpanion Notification',
         'rationaleMessagePermission':
-            'CallPanion needs notification permission to show incoming calls.',
+            'Callpanion needs notification permission to show incoming calls from your family.',
         'postNotificationMessageRequired':
-            'Please enable notifications in Settings to receive calls.'
+            'Please enable notifications in Settings to receive calls from your loved ones.'
       });
 
       // For Android 14+, request full screen intent permission
@@ -115,12 +115,12 @@ class CallKitService {
 
       final callKitParams = CallKitParams(
         id: _currentCallUuid!,
-        nameCaller: callData.relativeName,
-        appName: 'CallPanion',
+        nameCaller: 'Callpanion',
+        appName: 'Callpanion',
         avatar: callData.avatar ?? '',
-        handle: callData.handle ?? 'CallPanion',
+        handle: callData.handle ?? 'Callpanion',
         type: 0, // 0 = audio call (phone icon), 1 = video call
-        textAccept: 'Accept',
+        textAccept: 'Answer',
         textDecline: 'Decline',
         duration: int.tryParse(callData.duration ?? '30000') ?? 30000,
         extra: <String, dynamic>{
@@ -135,24 +135,24 @@ class CallKitService {
         missedCallNotification: const NotificationParams(
           showNotification: true,
           isShowCallback: true,
-          subtitle: 'Missed call',
+          subtitle: 'Missed call from Callpanion',
           callbackText: 'Call back',
         ),
         callingNotification: const NotificationParams(
           showNotification: true,
           isShowCallback: true,
-          subtitle: 'Calling...',
+          subtitle: 'Calling with Callpanion...',
           callbackText: 'Hang Up',
         ),
         android: const AndroidParams(
           isCustomNotification: true,
           isShowLogo: true,
           ringtonePath: 'system_ringtone_default',
-          backgroundColor: '#2563EB',
-          actionColor: '#10B981',
+          backgroundColor: '#E38B6F',
+          actionColor: '#0F3B2E',
           textColor: '#ffffff',
-          incomingCallNotificationChannelName: 'CallPanion Incoming Call',
-          missedCallNotificationChannelName: 'CallPanion Missed Call',
+          incomingCallNotificationChannelName: 'Callpanion Incoming Call',
+          missedCallNotificationChannelName: 'Callpanion Missed Call',
           isShowCallID: false,
           isShowFullLockedScreen: true,
         ),
@@ -209,7 +209,7 @@ class CallKitService {
         final callType = extra['callType'] as String?;
         final householdId = extra['householdId'] as String?;
         final relativeId = extra['relativeId'] as String?;
-        final relativeName = extra['relativeName'] as String? ?? 'Your Family';
+        final relativeName = 'Callpanion';
 
         if (kDebugMode) {
           print('📞 Extracted call data:');
@@ -255,7 +255,8 @@ class CallKitService {
           // Navigate immediately if we have an onCallAccepted callback
           if (onCallAccepted != null && callType != null) {
             if (kDebugMode) {
-              print('📞 Triggering navigation callback (direct from accept)...');
+              print(
+                  '📞 Triggering navigation callback (direct from accept)...');
             }
             // Direct navigation without delay - prioritize call connection
             onCallAccepted!(sessionId, callType);

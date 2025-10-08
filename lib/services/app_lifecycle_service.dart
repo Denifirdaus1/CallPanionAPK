@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/call_data.dart';
 import '../utils/constants.dart';
+import 'chat_notification_service.dart';
 
 class AppLifecycleService {
   static final AppLifecycleService _instance = AppLifecycleService._internal();
@@ -54,6 +55,9 @@ class AppLifecycleService {
   Future<void> _handleAppResumedFromBackground() async {
     _isAppInForeground = true;
 
+    // Update chat notification service
+    ChatNotificationService.instance.setAppForegroundState(true);
+
     if (kDebugMode) {
       print('📱 App resumed from background');
     }
@@ -64,6 +68,9 @@ class AppLifecycleService {
 
   Future<void> _handleAppMovedToBackground() async {
     _isAppInForeground = false;
+
+    // Update chat notification service
+    ChatNotificationService.instance.setAppForegroundState(false);
 
     if (kDebugMode) {
       print('📱 App moved to background');

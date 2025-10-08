@@ -39,6 +39,10 @@ dependencies:
   image_picker: ^1.2.0
   cached_network_image: ^3.4.1
   intl: ^0.19.0
+  flutter_local_notifications: ^18.0.1
+  
+  # Font dependencies
+  google_fonts: ^6.3.2
 
   # Gallery/Memory dependencies
   flutter_layout_grid: ^2.0.8
@@ -46,15 +50,27 @@ dependencies:
   photo_view: ^0.15.0
   path_provider: ^2.1.5
 
+  # QR Code Scanner
+  mobile_scanner: ^5.2.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   json_serializable: ^6.7.1
   build_runner: ^2.4.7
   flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/
     - assets/sounds/
+    - assets/icon/
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/Callpanion_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/Callpanion_icon.png"

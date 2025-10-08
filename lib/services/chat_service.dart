@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/chat_message.dart';
 import '../utils/constants.dart';
+import 'chat_notification_service.dart';
 
 class ChatService {
   static final ChatService instance = ChatService._internal();
@@ -92,12 +93,25 @@ class ChatService {
               column: 'household_id',
               value: householdId,
             ),
-            callback: (payload) {
+            callback: (payload) async {
               if (kDebugMode) {
                 print('[ChatService] Realtime message received: ${payload.newRecord}');
               }
               try {
                 final message = ChatMessage.fromJson(payload.newRecord);
+
+                // Trigger notification if message from family (only when app in background)
+                if (message.senderType == 'family') {
+                  final householdName = await getHouseholdName(householdId) ?? 'Your Family';
+                  final messagePreview = message.message ?? 'New message';
+
+                  await ChatNotificationService.instance.showChatNotification(
+                    householdId: householdId,
+                    householdName: householdName,
+                    messagePreview: messagePreview,
+                  );
+                }
+
                 callback(message);
               } catch (e) {
                 if (kDebugMode) {

@@ -21,6 +21,8 @@ export const FamilyChatComponent = ({ householdId, relativeName }: FamilyChatCom
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -59,6 +61,7 @@ export const FamilyChatComponent = ({ householdId, relativeName }: FamilyChatCom
       const data = await chatService.getMessages(householdId);
       console.log('[Chat] Loaded messages:', data);
       setMessages(data);
+      setHasMoreMessages(data.length >= 50);
     } catch (error) {
       console.error('[Chat] Failed to load messages:', error);
       toast({
@@ -68,6 +71,34 @@ export const FamilyChatComponent = ({ householdId, relativeName }: FamilyChatCom
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadMoreMessages = async () => {
+    if (isLoadingMore || !hasMoreMessages || messages.length === 0) return;
+
+    setIsLoadingMore(true);
+    try {
+      const oldestMessage = messages[0];
+      console.log('[Chat] Loading more messages before:', oldestMessage.created_at);
+      
+      const olderMessages = await chatService.getMessages(householdId, 50, oldestMessage.created_at);
+      
+      if (olderMessages.length > 0) {
+        setMessages((prev) => [...olderMessages, ...prev]);
+        setHasMoreMessages(olderMessages.length >= 50);
+      } else {
+        setHasMoreMessages(false);
+      }
+    } catch (error) {
+      console.error('[Chat] Failed to load more messages:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load older messages',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
@@ -93,8 +124,15 @@ export const FamilyChatComponent = ({ householdId, relativeName }: FamilyChatCom
   const handleScroll = (e: Event) => {
     const target = e.target as HTMLDivElement;
     const isNearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 100;
+    const isNearTop = target.scrollTop < 100;
+    
     setShowScrollButton(!isNearBottom);
     wasAtBottomRef.current = isNearBottom;
+
+    // Load more messages when scrolling near top
+    if (isNearTop && hasMoreMessages && !isLoadingMore) {
+      loadMoreMessages();
+    }
   };
 
   useEffect(() => {
@@ -300,6 +338,13 @@ export const FamilyChatComponent = ({ householdId, relativeName }: FamilyChatCom
         <div className="flex-1 relative min-h-0">
           <ScrollArea className="h-full">
             <div ref={scrollViewportRef} className="p-4 pt-12">
+              {isLoadingMore && (
+                <div className="flex items-center justify-center py-2">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  <span className="ml-2 text-sm text-muted-foreground">Loading older messages...</span>
+                </div>
+              )}
+              
               {isLoading ? (
                 <div className="flex items-center justify-center h-full py-8">
                   <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

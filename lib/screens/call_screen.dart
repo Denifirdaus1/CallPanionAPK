@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../services/api_service.dart';
 import '../services/elevenlabs_call_service.dart';
 import '../services/callkit_service.dart';
@@ -107,53 +108,54 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _connectToCall() async {
-    if (kDebugMode) {
-      print('🎙️ Starting call connection process...');
-    }
+    // ALWAYS log for crash debugging (even in release mode)
+    print('[CallScreen] 🎙️ Starting call connection process...');
+    print('[CallScreen] SessionId: ${widget.sessionId}');
+    print('[CallScreen] CallType: ${widget.callType}');
 
-    setState(() {
-      _isCallActive = true;
-      _callStartTime = DateTime.now();
-    });
+    try {
+      setState(() {
+        _isCallActive = true;
+        _callStartTime = DateTime.now();
+      });
 
-    // Start duration timer
-    _startDurationTimer();
+      // Start duration timer
+      _startDurationTimer();
 
-    // ElevenLabs WebRTC connection for in-app calls - HIGHEST PRIORITY
-    if (widget.callType == AppConstants.callTypeInApp) {
-      if (kDebugMode) {
-        print('🎙️ PRIORITY: Starting ElevenLabs WebRTC connection...');
-      }
+      // ElevenLabs WebRTC connection for in-app calls - HIGHEST PRIORITY
+      if (widget.callType == AppConstants.callTypeInApp) {
+        print('[CallScreen] 🎙️ PRIORITY: Starting ElevenLabs WebRTC connection...');
 
-      // Check if ElevenLabs call is already active
-      final isActive = ElevenLabsCallService.instance.isCallActive;
-      if (isActive) {
-        if (kDebugMode) {
-          print('⚠️ ElevenLabs call already active - ending previous call first');
-        }
-        // End any existing call before starting new one
-        await ElevenLabsCallService.instance.forceEndCall(widget.sessionId);
-      }
+        // Check if ElevenLabs call is already active
+        final isActive = ElevenLabsCallService.instance.isCallActive;
+        print('[CallScreen] Is ElevenLabs already active: $isActive');
 
-      // Start ElevenLabs call with optimized connection - NO DELAYS
-      try {
-        final result = await ElevenLabsCallService.instance
-            .startElevenLabsCall(widget.sessionId);
-        if (kDebugMode) {
-          print('✅ ElevenLabs WebRTC started successfully: ${result != null}');
-        }
-      } catch (e) {
-        if (kDebugMode) {
-          print('❌ Error starting ElevenLabs call: $e');
+        if (isActive) {
+          print('[CallScreen] ⚠️ ElevenLabs call already active - ending previous call first');
+          // End any existing call before starting new one
+          await ElevenLabsCallService.instance.forceEndCall(widget.sessionId);
         }
 
-        // Try with retry logic if first attempt fails
-        await _startElevenLabsWithRetry();
-      }
-    }
+        // Start ElevenLabs call with optimized connection - NO DELAYS
+        print('[CallScreen] Starting ElevenLabs call...');
+        try {
+          final result = await ElevenLabsCallService.instance
+              .startElevenLabsCall(widget.sessionId);
+          print('[CallScreen] ✅ ElevenLabs WebRTC started successfully: ${result != null}');
+        } catch (e, stackTrace) {
+          print('[CallScreen] ❌ Error starting ElevenLabs call: $e');
+          print('[CallScreen] Stack trace: $stackTrace');
 
-    if (kDebugMode) {
-      print('✅ Call connected: ${widget.sessionId}');
+          // Try with retry logic if first attempt fails
+          await _startElevenLabsWithRetry();
+        }
+      }
+
+      print('[CallScreen] ✅ Call connected: ${widget.sessionId}');
+    } catch (e, stackTrace) {
+      print('[CallScreen] 💥 FATAL ERROR in _connectToCall: $e');
+      print('[CallScreen] Stack trace: $stackTrace');
+      rethrow;
     }
   }
 
@@ -346,55 +348,6 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
-  void _sendContextualUpdate() async {
-    // Show dialog to get contextual update from user
-    final TextEditingController controller = TextEditingController();
-
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Send Contextual Update'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'Enter additional context for the AI...',
-            border: OutlineInputBorder(),
-          ),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, controller.text),
-            child: const Text('Send'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null && result.isNotEmpty) {
-      try {
-        await ElevenLabsCallService.instance.sendContextualUpdate(result);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Contextual update sent'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          _showErrorSnackBar('Failed to send contextual update: $e');
-        }
-      }
-    }
-  }
-
   String _formatDuration(int seconds) {
     final minutes = seconds ~/ 60;
     final remainingSeconds = seconds % 60;
@@ -404,7 +357,7 @@ class _CallScreenState extends State<CallScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1E293B),
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -421,10 +374,10 @@ class _CallScreenState extends State<CallScreen> {
                     width: 120,
                     height: 120,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF2563EB),
+                      color: const Color(0xFFE38B6F),
                       borderRadius: BorderRadius.circular(60),
                       border: Border.all(
-                        color: Colors.white.withOpacity(0.2),
+                        color: const Color(0xFFE4B8AC),
                         width: 3,
                       ),
                     ),
@@ -439,11 +392,11 @@ class _CallScreenState extends State<CallScreen> {
 
                   // Caller name
                   Text(
-                    widget.relativeName,
-                    style: const TextStyle(
+                    'Callpanion',
+                    style: GoogleFonts.fraunces(
                       fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF0F3B2E),
                     ),
                     textAlign: TextAlign.center,
                   ),
@@ -455,9 +408,10 @@ class _CallScreenState extends State<CallScreen> {
                     _isCallActive
                         ? _formatDuration(_callDuration)
                         : 'Connecting...',
-                    style: const TextStyle(
+                    style: GoogleFonts.fraunces(
                       fontSize: 16,
-                      color: Color(0xFF94A3B8),
+                      fontWeight: FontWeight.w400,
+                      color: const Color(0xFF0F3B2E).withOpacity(0.7),
                     ),
                   ),
 
@@ -468,14 +422,14 @@ class _CallScreenState extends State<CallScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF10B981).withOpacity(0.2),
+                        color: const Color(0xFFE38B6F).withOpacity(0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Text(
+                      child: Text(
                         'AI Connected',
-                        style: TextStyle(
+                        style: GoogleFonts.fraunces(
                           fontSize: 12,
-                          color: Color(0xFF10B981),
+                          color: const Color(0xFFE38B6F),
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -488,26 +442,27 @@ class _CallScreenState extends State<CallScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF374151).withOpacity(0.5),
+                        color: const Color(0xFFF8F9FA),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: const Color(0xFF10B981).withOpacity(0.3),
+                          color: const Color(0xFFE4B8AC),
                         ),
                       ),
                       child: Row(
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.smart_toy,
                             size: 16,
-                            color: Color(0xFF10B981),
+                            color: const Color(0xFFE38B6F),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               _lastMessage!,
-                              style: const TextStyle(
+                              style: GoogleFonts.fraunces(
                                 fontSize: 12,
-                                color: Color(0xFFE5E7EB),
+                                color: const Color(0xFF0F3B2E),
+                                fontWeight: FontWeight.w400,
                               ),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -525,19 +480,19 @@ class _CallScreenState extends State<CallScreen> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF10B981).withOpacity(0.2),
+                      color: const Color(0xFFE38B6F).withOpacity(0.2),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: const Color(0xFF10B981).withOpacity(0.3),
+                        color: const Color(0xFFE38B6F).withOpacity(0.3),
                       ),
                     ),
                     child: Text(
                       widget.callType == AppConstants.callTypeInApp
-                          ? 'AI Companion Call'
+                          ? 'ElevenLabs Callpanion Agent'
                           : 'Voice Call',
-                      style: const TextStyle(
+                      style: GoogleFonts.fraunces(
                         fontSize: 12,
-                        color: Color(0xFF10B981),
+                        color: const Color(0xFFE38B6F),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -573,8 +528,8 @@ class _CallScreenState extends State<CallScreen> {
                             margin: const EdgeInsets.symmetric(horizontal: 2),
                             decoration: BoxDecoration(
                               color: _isMuted
-                                  ? const Color(0xFFF59E0B)
-                                  : const Color(0xFF2563EB),
+                                  ? const Color(0xFFE4B8AC)
+                                  : const Color(0xFFE38B6F),
                               borderRadius: BorderRadius.circular(2),
                             ),
                           );
@@ -586,9 +541,10 @@ class _CallScreenState extends State<CallScreen> {
 
                     Text(
                       _isMuted ? 'Microphone Muted' : 'Listening...',
-                      style: const TextStyle(
+                      style: GoogleFonts.fraunces(
                         fontSize: 14,
-                        color: Color(0xFF94A3B8),
+                        fontWeight: FontWeight.w400,
+                        color: const Color(0xFF0F3B2E).withOpacity(0.7),
                       ),
                     ),
                   ],
@@ -609,8 +565,8 @@ class _CallScreenState extends State<CallScreen> {
                           height: 64,
                           decoration: BoxDecoration(
                             color: _isMuted
-                                ? const Color(0xFFF59E0B)
-                                : const Color(0xFF374151),
+                                ? const Color(0xFFE4B8AC)
+                                : const Color(0xFFE38B6F),
                             borderRadius: BorderRadius.circular(32),
                           ),
                           child: Icon(
@@ -639,21 +595,18 @@ class _CallScreenState extends State<CallScreen> {
                         ),
                       ),
 
-                      // Contextual update button
-                      GestureDetector(
-                        onTap: _sendContextualUpdate,
-                        child: Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF374151),
-                            borderRadius: BorderRadius.circular(32),
-                          ),
-                          child: const Icon(
-                            Icons.edit_note,
-                            size: 28,
-                            color: Colors.white,
-                          ),
+                      // Loud speaker indicator (always ON)
+                      Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE4B8AC),
+                          borderRadius: BorderRadius.circular(32),
+                        ),
+                        child: const Icon(
+                          Icons.volume_up,
+                          size: 28,
+                          color: Colors.white,
                         ),
                       ),
                     ],
@@ -678,20 +631,20 @@ class _CallScreenState extends State<CallScreen> {
                                 color: const Color(0xFFEF4444).withOpacity(0.3),
                               ),
                             ),
-                            child: const Row(
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
+                                const Icon(
                                   Icons.thumb_down,
                                   size: 16,
                                   color: Color(0xFFEF4444),
                                 ),
-                                SizedBox(width: 4),
+                                const SizedBox(width: 4),
                                 Text(
                                   'Negative',
-                                  style: TextStyle(
+                                  style: GoogleFonts.fraunces(
                                     fontSize: 12,
-                                    color: Color(0xFFEF4444),
+                                    color: const Color(0xFFEF4444),
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -706,26 +659,26 @@ class _CallScreenState extends State<CallScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 16, vertical: 8),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF10B981).withOpacity(0.2),
+                              color: const Color(0xFFE38B6F).withOpacity(0.2),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
-                                color: const Color(0xFF10B981).withOpacity(0.3),
+                                color: const Color(0xFFE38B6F).withOpacity(0.3),
                               ),
                             ),
-                            child: const Row(
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
+                                const Icon(
                                   Icons.thumb_up,
                                   size: 16,
-                                  color: Color(0xFF10B981),
+                                  color: Color(0xFFE38B6F),
                                 ),
-                                SizedBox(width: 4),
+                                const SizedBox(width: 4),
                                 Text(
                                   'Positive',
-                                  style: TextStyle(
+                                  style: GoogleFonts.fraunces(
                                     fontSize: 12,
-                                    color: Color(0xFF10B981),
+                                    color: const Color(0xFFE38B6F),
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -742,16 +695,19 @@ class _CallScreenState extends State<CallScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF374151).withOpacity(0.3),
+                      color: const Color(0xFFF8F9FA),
                       borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFFE4B8AC),
+                      ),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.info_outline,
                           size: 16,
-                          color: Color(0xFF94A3B8),
+                          color: const Color(0xFF0F3B2E).withOpacity(0.7),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -759,9 +715,10 @@ class _CallScreenState extends State<CallScreen> {
                             _isAgentSpeaking
                                 ? 'AI is speaking...'
                                 : 'AI companion is listening to your conversation',
-                            style: const TextStyle(
+                            style: GoogleFonts.fraunces(
                               fontSize: 12,
-                              color: Color(0xFF94A3B8),
+                              fontWeight: FontWeight.w400,
+                              color: const Color(0xFF0F3B2E).withOpacity(0.7),
                             ),
                             textAlign: TextAlign.center,
                           ),
