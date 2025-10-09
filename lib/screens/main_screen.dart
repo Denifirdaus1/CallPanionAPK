@@ -354,9 +354,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
               '🔐 Already authenticated with Supabase: ${SupabaseAuthService.instance.currentUserId}');
         }
 
-        // IMPORTANT: Even if already authenticated, ensure device_pairs is updated
-        // This handles the case where user was authenticated before the RLS fix
-        await SupabaseAuthService.instance.ensureDevicePairUpdated();
+        // NOTE: device_pairs update is now handled by claim-chat-access edge function
+        // when user first opens ChatScreen, not during MainScreen initialization
         return;
       }
 

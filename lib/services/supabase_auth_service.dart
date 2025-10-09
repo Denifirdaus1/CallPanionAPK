@@ -65,8 +65,8 @@ class SupabaseAuthService {
         // Store session
         await _storeSession();
 
-        // CRITICAL: Store this user_id in device_pairs table for RLS access
-        await _updateDevicePairWithUserId(response.user!.id);
+        // NOTE: device_pairs update is now handled by claim-chat-access edge function
+        // to avoid RLS permission issues and ensure proper user ID mapping
 
         if (kDebugMode) {
           print('[SupabaseAuth] ✅ Anonymous sign in successful: ${response.user!.id}');
@@ -83,82 +83,13 @@ class SupabaseAuthService {
     }
   }
 
-  /// Ensure device_pairs is updated with current user_id
-  /// Public method that can be called even if already authenticated
-  Future<void> ensureDevicePairUpdated() async {
-    final userId = currentUserId;
-    if (userId != null) {
-      await _updateDevicePairWithUserId(userId);
-    }
-  }
-
-  /// Update device_pairs table with the Supabase anonymous user_id
-  /// This allows RLS policies to identify this device for chat access
-  Future<void> _updateDevicePairWithUserId(String userId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final pairingToken = prefs.getString(AppConstants.keyPairingToken);
-
-      if (pairingToken == null) {
-        if (kDebugMode) {
-          print('[SupabaseAuth] ⚠️ No pairing token found, skipping device_pair update');
-        }
-        return;
-      }
-
-      // Get household ID from SharedPreferences
-      final householdId = prefs.getString(AppConstants.keyHouseholdId);
-
-      if (householdId == null) {
-        if (kDebugMode) {
-          print('[SupabaseAuth] ⚠️ No household ID found, skipping device_pair update');
-        }
-        return;
-      }
-
-      if (kDebugMode) {
-        print('[SupabaseAuth] Updating device_pairs with user_id: $userId');
-      }
-
-      // First, get existing device_info to merge with
-      final existingPair = await _supabase
-          .from('device_pairs')
-          .select('device_info')
-          .eq('pair_token', pairingToken)
-          .eq('household_id', householdId)
-          .maybeSingle();
-
-      // Merge existing device_info with new user_id fields
-      Map<String, dynamic> updatedDeviceInfo = {};
-      if (existingPair != null && existingPair['device_info'] != null) {
-        updatedDeviceInfo = Map<String, dynamic>.from(existingPair['device_info'] as Map);
-      }
-
-      // Add/update the user ID fields
-      updatedDeviceInfo['anonymous_user_id'] = userId;
-      updatedDeviceInfo['supabase_user_id'] = userId;
-      updatedDeviceInfo['rls_updated_at'] = DateTime.now().toIso8601String();
-
-      // Update with merged device_info
-      await _supabase
-          .from('device_pairs')
-          .update({
-            'device_info': updatedDeviceInfo,
-            'claimed_by': userId, // Also update claimed_by for direct check
-          })
-          .eq('pair_token', pairingToken)
-          .eq('household_id', householdId);
-
-      if (kDebugMode) {
-        print('[SupabaseAuth] ✅ device_pairs updated with user_id for RLS access');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('[SupabaseAuth] ⚠️ Error updating device_pairs: $e');
-      }
-      // Don't throw - this is not critical enough to fail authentication
-    }
-  }
+  // REMOVED: ensureDevicePairUpdated() and _updateDevicePairWithUserId()
+  // These functions are now redundant because claim-chat-access edge function
+  // handles updating device_pairs with user ID using service role.
+  // Keeping this code would cause:
+  // 1. Duplicate updates to device_pairs table
+  // 2. Potential race conditions
+  // 3. RLS permission errors when Flutter tries to update directly
 
   /// Sign in with email and password (for future use if needed)
   Future<bool> signInWithEmail(String email, String password) async {

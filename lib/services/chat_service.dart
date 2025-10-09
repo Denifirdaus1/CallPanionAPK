@@ -20,6 +20,50 @@ class ChatService {
   // Callback untuk menerima pesan baru
   Function(ChatMessage)? onNewMessage;
 
+  /// Claim chat access for current device/user (lazy loading)
+  /// This ensures device_pairs is updated with current Supabase user_id
+  Future<void> claimChatAccess(String householdId) async {
+    try {
+      print('[ChatService] 🔐 Claiming chat access...');
+      
+      // Get pairing token from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final pairingToken = prefs.getString(AppConstants.keyPairingToken);
+
+      if (pairingToken == null) {
+        throw Exception('No pairing token found. Please complete device pairing first.');
+      }
+
+      // Get current user session
+      final user = _supabase.auth.currentUser;
+      if (user == null) {
+        throw Exception('Not authenticated. Please sign in first.');
+      }
+
+      print('[ChatService] Calling claim-chat-access edge function...');
+      print('[ChatService] Household: $householdId');
+      print('[ChatService] Token length: ${pairingToken.length}, Token: ${pairingToken.length > 8 ? pairingToken.substring(0, 8) + "..." : pairingToken}');
+
+      // Call edge function to claim chat access (service role bypass RLS)
+      final response = await _supabase.functions.invoke(
+        'claim-chat-access',
+        body: {
+          'pairingToken': pairingToken,
+          'householdId': householdId,
+        },
+      );
+
+      if (response.status != 200) {
+        throw Exception('Failed to claim chat access: ${response.data}');
+      }
+
+      print('[ChatService] ✅ Chat access claimed successfully');
+    } catch (e) {
+      print('[ChatService] ❌ Error claiming chat access: $e');
+      rethrow;
+    }
+  }
+
   /// Load chat messages untuk household tertentu
   Future<List<ChatMessage>> loadMessages(
     String householdId, {
@@ -161,8 +205,8 @@ class ChatService {
   /// Send text message
   Future<ChatMessage> sendTextMessage(String householdId, String message) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final userId = prefs.getString(AppConstants.keyUserId);
+      // Use Supabase Auth user ID instead of SharedPreferences
+      final userId = _supabase.auth.currentUser?.id;
 
       if (userId == null) {
         throw Exception('User not authenticated');
@@ -196,8 +240,8 @@ class ChatService {
   /// Upload image ke storage
   Future<String> uploadImage(String householdId, File imageFile) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final userId = prefs.getString(AppConstants.keyUserId);
+      // Use Supabase Auth user ID for validation
+      final userId = _supabase.auth.currentUser?.id;
 
       if (userId == null) {
         throw Exception('User not authenticated');
@@ -221,16 +265,16 @@ class ChatService {
             ),
           );
 
-      // Create signed URL (valid for 1 year)
-      final signedUrl = await _supabase.storage
+      // Get public URL (no expiry)
+      final publicUrl = _supabase.storage
           .from('family-chat-media')
-          .createSignedUrl(fileName, 31536000); // 365 days
+          .getPublicUrl(fileName);
 
       if (kDebugMode) {
         print('[ChatService] Image uploaded successfully');
       }
 
-      return signedUrl;
+      return publicUrl;
     } catch (e) {
       if (kDebugMode) {
         print('[ChatService] Error uploading image: $e');
@@ -246,8 +290,8 @@ class ChatService {
     String? caption,
   }) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final userId = prefs.getString(AppConstants.keyUserId);
+      // Use Supabase Auth user ID instead of SharedPreferences
+      final userId = _supabase.auth.currentUser?.id;
 
       if (userId == null) {
         throw Exception('User not authenticated');
@@ -344,11 +388,11 @@ class ChatService {
         return householdId;
       }
 
-      // Fallback: Try to get from database
-      final userId = prefs.getString(AppConstants.keyUserId);
+      // Fallback: Try to get from database using Supabase Auth user ID
+      final userId = _supabase.auth.currentUser?.id;
       if (userId == null) {
         if (kDebugMode) {
-          print('[ChatService] ❌ User ID not found');
+          print('[ChatService] ❌ User not authenticated');
         }
         return null;
       }

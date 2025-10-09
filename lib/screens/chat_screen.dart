@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/chat_message.dart';
 import '../services/chat_service.dart';
+import '../services/supabase_auth_service.dart';
 
 class ChatScreen extends StatefulWidget {
   final String householdId;
@@ -45,21 +46,79 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _initializeChat() async {
-    // Fetch household name first (quick)
-    if (widget.householdName != null) {
-      _householdName = widget.householdName!;
-    } else {
-      final name = await _getHouseholdName();
-      if (name != null && mounted) {
-        setState(() {
-          _householdName = name;
-        });
+    try {
+      // Step 1: Ensure Supabase authentication (lazy loading)
+      print('[ChatScreen] 🔐 Ensuring Supabase auth...');
+      await _ensureSupabaseAuth();
+      
+      // Step 2: Claim chat access (update device_pairs via edge function)
+      print('[ChatScreen] 🔐 Claiming chat access...');
+      await ChatService.instance.claimChatAccess(widget.householdId);
+      
+      // Step 3: Fetch household name (quick)
+      if (widget.householdName != null) {
+        _householdName = widget.householdName!;
+      } else {
+        final name = await _getHouseholdName();
+        if (name != null && mounted) {
+          setState(() {
+            _householdName = name;
+          });
+        }
+      }
+
+      // Step 4: Load messages and setup realtime
+      await _loadMessages();
+      _setupRealtimeSubscription();
+      
+      print('[ChatScreen] ✅ Chat initialization complete');
+    } catch (e) {
+      print('[ChatScreen] ❌ Error initializing chat: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to initialize chat: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
+  }
 
-    // Then load messages and setup realtime
-    await _loadMessages();
-    _setupRealtimeSubscription();
+  /// Ensure Supabase is initialized and user is authenticated
+  Future<void> _ensureSupabaseAuth() async {
+    try {
+      // Check if Supabase is already initialized
+      try {
+        final _ = Supabase.instance.client;
+        print('[ChatScreen] ✅ Supabase already initialized');
+      } catch (e) {
+        // Initialize Supabase
+        print('[ChatScreen] 🔐 Initializing Supabase...');
+        await Supabase.initialize(
+          url: 'https://umjtepmdwfyfhdzbkyli.supabase.co',
+          anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtanRlcG1kd2Z5ZmhkemJreWxpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ5MDUyNTksImV4cCI6MjA3MDQ4MTI1OX0.BhMkFrAOfeGw2ImHDXSTVmgM6P--L3lq9pNKDX3XzWE',
+        );
+        await SupabaseAuthService.instance.initialize();
+      }
+
+      // Check if already authenticated
+      if (SupabaseAuthService.instance.isAuthenticated) {
+        print('[ChatScreen] ✅ Already authenticated: ${SupabaseAuthService.instance.currentUserId}');
+        return;
+      }
+
+      // Sign in anonymously
+      print('[ChatScreen] 🔐 Signing in anonymously...');
+      final success = await SupabaseAuthService.instance.signInAnonymously();
+      if (!success) {
+        throw Exception('Failed to authenticate');
+      }
+      print('[ChatScreen] ✅ Authentication successful');
+    } catch (e) {
+      print('[ChatScreen] ❌ Auth error: $e');
+      rethrow;
+    }
   }
 
   Future<String?> _getHouseholdName() async {
