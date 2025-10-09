@@ -61,18 +61,13 @@ export class ChatService {
       throw uploadError;
     }
 
-    // Use signed URL (valid for 1 year) to avoid RLS issues
-    const { data, error: signError } = await supabase.storage
+    // Use public URL (no expiry)
+    const { data } = supabase.storage
       .from('family-chat-media')
-      .createSignedUrl(fileName, 31536000); // 365 days
+      .getPublicUrl(fileName);
 
-    if (signError || !data) {
-      console.error('[ChatService] Signed URL error:', signError);
-      throw signError || new Error('Failed to create signed URL');
-    }
-
-    console.log('[ChatService] Image uploaded, signed URL created');
-    return data.signedUrl;
+    console.log('[ChatService] Image uploaded, public URL created');
+    return data.publicUrl;
   }
 
   async sendImageMessage(householdId: string, imageUrl: string, caption?: string): Promise<void> {
@@ -98,15 +93,22 @@ export class ChatService {
     console.log('[ChatService] Image message sent successfully');
   }
 
-  async getMessages(householdId: string, limit = 50): Promise<FamilyMessage[]> {
-    console.log('[ChatService] Fetching messages for household:', householdId);
+  async getMessages(householdId: string, limit = 50, before?: string): Promise<FamilyMessage[]> {
+    console.log('[ChatService] Fetching messages for household:', householdId, 'before:', before);
     
-    const { data, error } = await supabase
+    let query = supabase
       .from('chat_messages')
       .select('*')
       .eq('household_id', householdId)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: true })
+      .is('deleted_at', null);
+
+    // If before timestamp provided, load messages older than that
+    if (before) {
+      query = query.lt('created_at', before);
+    }
+
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -114,8 +116,9 @@ export class ChatService {
       throw error;
     }
 
-    console.log('[ChatService] Fetched messages:', data);
-    return data as FamilyMessage[];
+    console.log('[ChatService] Fetched messages:', data?.length || 0);
+    // Reverse to show oldest first (ascending order for display)
+    return (data as FamilyMessage[]).reverse();
   }
 
   subscribeToMessages(
