@@ -271,18 +271,18 @@ export const InAppCallScheduleSettings = () => {
                       )}
                     </div>
                     {relative.schedule && (
-                      <div className="grid grid-cols-3 gap-2 mt-2">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
                         <div className="text-center p-2 bg-muted/30 rounded text-xs">
-                          <p className="text-muted-foreground">Morning</p>
-                          <p className="font-medium">{relative.schedule.morning_time}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Morning</p>
+                          <p className="font-medium text-xs sm:text-sm">{relative.schedule.morning_time}</p>
                         </div>
                         <div className="text-center p-2 bg-muted/30 rounded text-xs">
-                          <p className="text-muted-foreground">Afternoon</p>
-                          <p className="font-medium">{relative.schedule.afternoon_time}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Afternoon</p>
+                          <p className="font-medium text-xs sm:text-sm">{relative.schedule.afternoon_time}</p>
                         </div>
                         <div className="text-center p-2 bg-muted/30 rounded text-xs">
-                          <p className="text-muted-foreground">Evening</p>
-                          <p className="font-medium">{relative.schedule.evening_time}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Evening</p>
+                          <p className="font-medium text-xs sm:text-sm">{relative.schedule.evening_time}</p>
                         </div>
                       </div>
                     )}

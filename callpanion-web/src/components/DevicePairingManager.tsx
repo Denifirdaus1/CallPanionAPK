@@ -3,10 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { Smartphone, QrCode as QrCodeIcon, Copy, RefreshCw, CheckCircle, AlertCircle } from "lucide-react";
+import { Smartphone, QrCode as QrCodeIcon, Copy, RefreshCw, CheckCircle, AlertCircle, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useCallMethodAccess } from "@/hooks/useCallMethodAccess";
 import QRCode from "react-qr-code";
@@ -241,6 +241,26 @@ return (
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* APK Download Section - only show if no pairing tokens yet */}
+        {pairingTokens.length === 0 && (
+          <Alert>
+            <Smartphone className="h-4 w-4" />
+            <AlertTitle>First Time Setup?</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p className="text-sm">
+                Before generating a pairing code, make sure the CallPanion app 
+                is installed on your relative's device.
+              </p>
+              <Button variant="outline" size="sm" asChild>
+                <a href="/elderly-app/setup" target="_blank">
+                  <Download className="mr-2 h-4 w-4" />
+                  Download App & Instructions
+                </a>
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Generate New Token */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>

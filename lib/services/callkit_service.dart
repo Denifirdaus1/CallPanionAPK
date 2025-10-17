@@ -47,7 +47,7 @@ class CallKitService {
         'rationaleMessagePermission':
             'Callpanion needs notification permission to show incoming calls from your family.',
         'postNotificationMessageRequired':
-            'Please enable notifications in Settings to receive calls from your loved ones.'
+            'Please enable notifications in Settings to receive calls from your loved ones.',
       });
 
       // For Android 14+, request full screen intent permission
@@ -129,14 +129,11 @@ class CallKitService {
           'householdId': callData.householdId,
           'relativeId': callData.relativeId,
         },
-        headers: <String, dynamic>{
-          'platform': 'flutter_elderly',
-        },
+        headers: <String, dynamic>{'platform': 'flutter_elderly'},
         missedCallNotification: const NotificationParams(
           showNotification: true,
-          isShowCallback: true,
+          isShowCallback: false, // Hide callback button on missed-call banner
           subtitle: 'Missed call from Callpanion',
-          callbackText: 'Call back',
         ),
         callingNotification: const NotificationParams(
           showNotification: true,
@@ -256,7 +253,8 @@ class CallKitService {
           if (onCallAccepted != null && callType != null) {
             if (kDebugMode) {
               print(
-                  '📞 Triggering navigation callback (direct from accept)...');
+                '📞 Triggering navigation callback (direct from accept)...',
+              );
             }
             // Direct navigation without delay - prioritize call connection
             onCallAccepted!(sessionId, callType);

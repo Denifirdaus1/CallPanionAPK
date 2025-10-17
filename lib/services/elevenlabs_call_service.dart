@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/constants.dart';
+import 'api_service.dart';
 
 // Enhanced enums and models
 enum ConversationState { idle, connecting, connected, disconnected, error }
@@ -147,6 +148,29 @@ class ElevenLabsCallService {
   // Initialize with native event handling
   ElevenLabsCallService._internal() {
     _initializeEventStream();
+
+    // Listen iOS VoIP token updates from native (AppDelegate)
+    _eventChannel.receiveBroadcastStream(); // ensure channel initialized
+    const MethodChannel tokenChannel = MethodChannel(
+        'app.lovable.a4b57244d3ad47ea85cac99941e17d30.elevenlabs/conversation');
+    tokenChannel.setMethodCallHandler((MethodCall call) async {
+      if (call.method == 'iosVoipTokenUpdated') {
+        final args = Map<String, dynamic>.from(call.arguments as Map);
+        final token = args['voipToken'] as String?;
+        if (token != null) {
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString(AppConstants.keyVoipToken, token);
+            // Optionally register to backend if needed
+            await ApiService.instance.registerFCMToken(voipToken: token);
+            _logDebug('📱 iOS VoIP token saved & registered');
+          } catch (e) {
+            _logDebug('❌ Failed to persist/register iOS VoIP token',
+                data: {'error': e.toString()});
+          }
+        }
+      }
+    });
   }
 
   // Initialize event stream from native platforms

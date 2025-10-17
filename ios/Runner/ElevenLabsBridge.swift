@@ -2,8 +2,6 @@ import Flutter
 import UIKit
 import AVFoundation
 import CallKit
-
-// Import ElevenLabs iOS SDK
 import ElevenLabs
 
 public class ElevenLabsBridge: NSObject, FlutterPlugin {
@@ -11,9 +9,8 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
     private var eventChannel: FlutterEventChannel!
     private var eventSink: FlutterEventSink?
     
-    // ElevenLabs SDK objects
-    private var elevenLabsClient: ElevenLabsClient?
-    private var activeConversation: ConversationSession?
+    // ElevenLabs SDK conversation instance (official SDK)
+    private var conversation: Conversation?
     private var conversationState: ConversationState = .idle
     private var conversationMetadata: [String: Any] = [:]
     private var connectionStartTime: Date?
@@ -31,13 +28,14 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = ElevenLabsBridge()
         
+        // Use the same channel names as Android bridge
         instance.methodChannel = FlutterMethodChannel(
-            name: "com.yourapp.elevenlabs/conversation",
+            name: "app.lovable.a4b57244d3ad47ea85cac99941e17d30.elevenlabs/conversation",
             binaryMessenger: registrar.messenger()
         )
         
         instance.eventChannel = FlutterEventChannel(
-            name: "com.yourapp.elevenlabs/events",
+            name: "app.lovable.a4b57244d3ad47ea85cac99941e17d30.elevenlabs/events",
             binaryMessenger: registrar.messenger()
         )
         
@@ -49,9 +47,9 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
     }
     
     private func initializeElevenLabs() {
-        // Initialize ElevenLabs SDK
-        elevenLabsClient = ElevenLabsClient()
-        print("[ElevenLabsBridge] ✅ ElevenLabs SDK initialized")
+        // Optional global configure
+        // ElevenLabs.configure(.init(debugMode: false))
+        print("[ElevenLabsBridge] ✅ ElevenLabs SDK ready")
     }
     
     private func setupAudioSession() {
@@ -80,6 +78,21 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
             
         case "setMicMuted":
             handleSetMicMuted(call: call, result: result)
+        
+        case "getConversationState":
+            result([
+                "state": conversationStateString(conversationState),
+                "conversationId": conversationMetadata["conversationId"] as? String ?? "",
+                "connectionTime": connectionStartTime?.timeIntervalSince1970 ?? 0,
+                "metadata": conversationMetadata
+            ])
+        
+        case "getConnectionStatus":
+            result([
+                "isConnected": conversationState == .connected,
+                "state": conversationStateString(conversationState),
+                "hasActiveConversation": conversation != nil
+            ])
             
         case "getConversationState":
             result([
@@ -135,38 +148,68 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
                 try audioSession?.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .defaultToSpeaker])
                 try audioSession?.setActive(true)
                 
-                // Create conversation configuration
-                let config: ConversationConfig
-                if let token = conversationToken {
-                    config = ConversationConfig(conversationToken: token)
-                } else {
-                    config = ConversationConfig(agentId: agentId!)
-                }
-                
-                // Set dynamic variables
+                // Build conversation config
+                var config = ConversationConfig()
+                config.conversationOverrides = .init(textOnly: false)
                 config.dynamicVariables = dynamicVariables
                 
-                // Start the conversation
-                activeConversation = try await elevenLabsClient?.startConversation(
-                    config: config,
-                    delegate: self
-                )
+                // Start conversation via official SDK
+                if let token = conversationToken {
+                    conversation = try await ElevenLabs.startConversation(
+                        conversationToken: token,
+                        config: config,
+                        onAgentReady: { [weak self] in
+                            guard let self else { return }
+                            self.conversationState = .connected
+                            let convId = self.conversation?.conversationMetadata?.conversationId ?? UUID().uuidString
+                            self.conversationMetadata = [
+                                "conversationId": convId,
+                                "startTime": self.connectionStartTime?.timeIntervalSince1970 ?? 0
+                            ]
+                            self.sendEvent(type: "conversationConnected", data: [
+                                "conversationId": convId,
+                                "timestamp": Date().timeIntervalSince1970
+                            ])
+                        },
+                        onDisconnect: { [weak self] in
+                            guard let self else { return }
+                            self.conversationState = .disconnected
+                            self.sendEvent(type: "conversationEnded", data: [
+                                "duration": abs(self.connectionStartTime?.timeIntervalSinceNow ?? 0),
+                                "timestamp": Date().timeIntervalSince1970
+                            ])
+                        }
+                    )
+                } else if let agent = agentId {
+                    conversation = try await ElevenLabs.startConversation(
+                        agentId: agent,
+                        config: config,
+                        onAgentReady: { [weak self] in
+                            guard let self else { return }
+                            self.conversationState = .connected
+                            let convId = self.conversation?.conversationMetadata?.conversationId ?? UUID().uuidString
+                            self.conversationMetadata = [
+                                "conversationId": convId,
+                                "startTime": self.connectionStartTime?.timeIntervalSince1970 ?? 0
+                            ]
+                            self.sendEvent(type: "conversationConnected", data: [
+                                "conversationId": convId,
+                                "timestamp": Date().timeIntervalSince1970
+                            ])
+                        },
+                        onDisconnect: { [weak self] in
+                            guard let self else { return }
+                            self.conversationState = .disconnected
+                            self.sendEvent(type: "conversationEnded", data: [
+                                "duration": abs(self.connectionStartTime?.timeIntervalSinceNow ?? 0),
+                                "timestamp": Date().timeIntervalSince1970
+                            ])
+                        }
+                    )
+                }
                 
-                let conversationId = activeConversation?.conversationId ?? UUID().uuidString
-                
-                conversationState = .connected
-                conversationMetadata = [
-                    "conversationId": conversationId,
-                    "startTime": connectionStartTime?.timeIntervalSince1970 ?? 0
-                ]
-                
-                print("[ElevenLabsBridge] ✅ Conversation started: \(conversationId)")
-                
-                sendEvent(type: "conversationConnected", data: [
-                    "conversationId": conversationId,
-                    "timestamp": Date().timeIntervalSince1970
-                ])
-                
+                let conversationId = conversation?.conversationMetadata?.conversationId ?? UUID().uuidString
+                print("[ElevenLabsBridge] ✅ Conversation started (pending ready): \(conversationId)")
                 result(conversationId)
                 
             } catch {
@@ -179,27 +222,17 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
     
     private func handleEndConversation(result: @escaping FlutterResult) {
         print("[ElevenLabsBridge] 🔚 Ending conversation")
-        
         let duration = connectionStartTime?.timeIntervalSinceNow ?? 0
-        
         Task { @MainActor in
             do {
-                // End the conversation
-                try await activeConversation?.endConversation()
-                
-                activeConversation = nil
+                await conversation?.endConversation()
+                conversation = nil
                 conversationState = .disconnected
-                
-                // Deactivate audio session
                 try? audioSession?.setActive(false)
-                
                 print("[ElevenLabsBridge] ✅ Conversation ended: duration=\(abs(duration))s")
-                
                 conversationMetadata = [:]
                 connectionStartTime = nil
-                
                 result(nil)
-                
             } catch {
                 print("[ElevenLabsBridge] ❌ Error ending conversation: \(error)")
                 result(FlutterError(code: "END_FAILED", message: error.localizedDescription, details: nil))
@@ -214,14 +247,14 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
             return
         }
         
-        guard activeConversation != nil else {
+        guard conversation != nil else {
             result(FlutterError(code: "NO_CONVERSATION", message: "No active conversation", details: nil))
             return
         }
         
         Task { @MainActor in
             do {
-                try await activeConversation?.sendTextInput(message)
+                try await conversation?.sendMessage(message)
                 
                 print("[ElevenLabsBridge] 💬 Text message sent: \(message)")
                 result(["success": true, "message": message])
@@ -238,11 +271,15 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
             result(FlutterError(code: "INVALID_ARGUMENT", message: "muted parameter required", details: nil))
             return
         }
-        
-        activeConversation?.setMicrophoneMuted(muted)
-        
-        sendEvent(type: "microphoneStateChanged", data: ["muted": muted])
-        result(["muted": muted])
+        Task { @MainActor in
+            do {
+                try await conversation?.setMuted(muted)
+                sendEvent(type: "microphoneStateChanged", data: ["muted": muted])
+                result(["muted": muted])
+            } catch {
+                result(FlutterError(code: "MUTE_FAILED", message: error.localizedDescription, details: nil))
+            }
+        }
     }
     
     private func sendEvent(type: String, data: [String: Any]) {
@@ -268,52 +305,7 @@ public class ElevenLabsBridge: NSObject, FlutterPlugin {
     }
 }
 
-// MARK: - ConversationDelegate
-extension ElevenLabsBridge: ConversationDelegate {
-    
-    public func conversationDidConnect(conversationId: String) {
-        sendEvent(type: "conversationConnected", data: ["conversationId": conversationId])
-    }
-    
-    public func conversationDidReceiveAudio(data: Data) {
-        // Audio is handled automatically by the SDK
-    }
-    
-    public func conversationDidReceiveTranscript(text: String, isFinal: Bool, source: TranscriptSource) {
-        sendEvent(type: "transcript", data: [
-            "text": text,
-            "isFinal": isFinal,
-            "source": source.rawValue
-        ])
-    }
-    
-    public func conversationDidReceiveMetadata(metadata: [String: Any]) {
-        conversationMetadata.merge(metadata) { $1 }
-        sendEvent(type: "metadata", data: metadata)
-    }
-    
-    public func conversationDidEncounterError(error: Error) {
-        conversationState = .error
-        sendEvent(type: "conversationFailed", data: [
-            "error": error.localizedDescription,
-            "code": "CONVERSATION_ERROR"
-        ])
-    }
-    
-    public func conversationDidEnd(reason: EndReason) {
-        conversationState = .disconnected
-        activeConversation = nil
-        
-        sendEvent(type: "conversationEnded", data: [
-            "reason": reason.rawValue,
-            "duration": abs(connectionStartTime?.timeIntervalSinceNow ?? 0)
-        ])
-    }
-    
-    public func conversationModeDidChange(mode: ConversationMode) {
-        sendEvent(type: "modeChange", data: ["mode": mode.rawValue])
-    }
-}
+// Event streaming is primarily handled inline via callbacks above
 
 // MARK: - FlutterStreamHandler
 extension ElevenLabsBridge: FlutterStreamHandler {

@@ -23,7 +23,26 @@ import PushKit
         if #available(iOS 10.0, *) {
             UNUserNotificationCenter.current().delegate = self as UNUserNotificationCenterDelegate
         }
-        
+        // Request notification permissions and register for APNs
+        if #available(iOS 10.0, *) {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
+                if let error = error {
+                    print("❌ Notification permission error: \(error.localizedDescription)")
+                } else {
+                    print("🔔 Notification permission granted: \(granted)")
+                    if granted {
+                        DispatchQueue.main.async {
+                            application.registerForRemoteNotifications()
+                        }
+                    }
+                }
+            }
+        } else {
+            let settings = UIUserNotificationSettings(types: [.alert, .badge, .sound], categories: nil)
+            application.registerUserNotificationSettings(settings)
+            application.registerForRemoteNotifications()
+        }
+
         // Initialize PushKit for VoIP push notifications
         initializePushKit()
         
@@ -77,8 +96,10 @@ import PushKit
             let token = pushCredentials.token.map { String(format: "%02.2hhx", $0) }.joined()
             print("VoIP Token: \(token)")
             
-            // Note: VoIP token is different from regular APNs token
-            // You may need to send this to your server separately
+            // Send VoIP token to Flutter/Dart (so it can be registered to backend, same as Android path)
+            // We reuse the same method channel namespace as ElevenLabs bridge for simplicity
+            let channel = FlutterMethodChannel(name: "app.lovable.a4b57244d3ad47ea85cac99941e17d30.elevenlabs/conversation", binaryMessenger: self.window.rootViewController as! FlutterBinaryMessenger)
+            channel.invokeMethod("iosVoipTokenUpdated", arguments: ["voipToken": token])
         }
     }
     

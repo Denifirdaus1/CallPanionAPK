@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -10,13 +11,14 @@ import '../services/api_service.dart';
 import '../services/app_lifecycle_service.dart';
 import '../services/supabase_auth_service.dart';
 import '../services/permission_service.dart';
+import '../services/schedule_reminder_service.dart';
 import '../models/call_data.dart';
 import '../utils/constants.dart';
 // Removed webview_call_screen.dart import - using native ElevenLabs WebRTC only
 import 'pairing_screen.dart';
 import 'chat_screen.dart';
 import 'gallery_screen.dart';
-import '../services/chat_service.dart';
+// import '../services/chat_service.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -33,6 +35,22 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   CallData? _currentCall;
   // REMOVED: _householdId - now lazy loaded when user clicks chat/gallery button
 
+  // Realtime schedule state
+  String? _morningTime;
+  String? _afternoonTime;
+  String? _eveningTime;
+  String? _scheduleTimezone;
+  bool? _scheduleActive;
+  bool _isScheduleLoading = false;
+  StreamSubscription<List<Map<String, dynamic>>>? _scheduleStreamSub;
+
+  // UI state for collapsible section
+  bool _isImportantInfoExpanded = false;
+
+  // Cache microphone permission status to avoid repeated checks
+  bool? _microphoneGranted;
+  bool _isCheckingMicPermission = false;
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +62,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _scheduleStreamSub?.cancel();
     super.dispose();
   }
 
@@ -112,8 +131,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         }
       }
 
-      // Continue with non-essential background tasks
+      // Continue with non-essential background tasks (non-blocking)
       _performBackgroundTasks();
+
+      // Check microphone permission in background (cached for performance, non-blocking)
+      unawaited(_checkMicrophonePermission());
+
+      // Initialize schedule feature (fetch + realtime) when paired
+      await _initScheduleFeature();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -171,15 +196,45 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
             '✅ Permissions - Mic: $micGranted, Notif: $notifGranted, Camera: $cameraGranted');
       }
 
-      // Update status if microphone denied (CRITICAL)
-      if (!micGranted && mounted) {
+      // Cache microphone permission status
+      if (mounted) {
         setState(() {
-          _status = 'Microphone permission required for calls';
+          _microphoneGranted = micGranted;
+          // Update status if microphone denied (CRITICAL)
+          if (!micGranted) {
+            _status = 'Microphone permission required for calls';
+          }
         });
       }
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error requesting permissions: $e');
+      }
+    }
+  }
+
+  /// Check and cache microphone permission
+  Future<void> _checkMicrophonePermission() async {
+    if (_isCheckingMicPermission) return;
+
+    setState(() {
+      _isCheckingMicPermission = true;
+    });
+
+    try {
+      final granted = await PermissionService.isMicrophoneGranted();
+      if (mounted) {
+        setState(() {
+          _microphoneGranted = granted;
+          _isCheckingMicPermission = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _microphoneGranted = true; // Default to true to avoid blocking UI
+          _isCheckingMicPermission = false;
+        });
       }
     }
   }
@@ -196,6 +251,157 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     } catch (e) {
       if (kDebugMode) {
         print('❌ Error in background tasks: $e');
+      }
+    }
+  }
+
+  Future<void> _initScheduleFeature() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final relativeId = prefs.getString(AppConstants.keyRelativeId);
+      if (!_isDevicePaired || relativeId == null) {
+        return;
+      }
+
+      // Ensure Supabase is ready
+      await _ensureSupabaseAuth();
+
+      // Initial load
+      await _loadSchedule(relativeId);
+
+      // Start realtime stream
+      _startScheduleStream(relativeId);
+    } catch (_) {}
+  }
+
+  Future<void> _loadSchedule(String relativeId) async {
+    try {
+      setState(() {
+        _isScheduleLoading = true;
+      });
+
+      final client = Supabase.instance.client;
+      final query = await client
+          .from('schedules')
+          .select(
+              'id, morning_time, afternoon_time, evening_time, timezone, active')
+          .eq('relative_id', relativeId)
+          .limit(1)
+          .maybeSingle();
+
+      if (query != null) {
+        setState(() {
+          _morningTime = query['morning_time'] as String?;
+          _afternoonTime = query['afternoon_time'] as String?;
+          _eveningTime = query['evening_time'] as String?;
+          _scheduleTimezone = query['timezone'] as String?;
+          _scheduleActive = query['active'] as bool?;
+        });
+
+        // Schedule reminders after loading schedule
+        await _scheduleReminders();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error loading schedule: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isScheduleLoading = false;
+        });
+      }
+    }
+  }
+
+  void _startScheduleStream(String relativeId) {
+    _scheduleStreamSub?.cancel();
+    final client = Supabase.instance.client;
+    final stream = client
+        .from('schedules')
+        .stream(primaryKey: ['id'])
+        .eq('relative_id', relativeId)
+        .limit(1);
+
+    _scheduleStreamSub = stream.listen((rows) {
+      if (rows.isNotEmpty) {
+        final row = rows.first;
+        if (mounted) {
+          // Only update if values actually changed (avoid unnecessary rebuilds)
+          final newMorning = row['morning_time'] as String?;
+          final newAfternoon = row['afternoon_time'] as String?;
+          final newEvening = row['evening_time'] as String?;
+          final newTimezone = row['timezone'] as String?;
+          final newActive = row['active'] as bool?;
+
+          if (newMorning != _morningTime ||
+              newAfternoon != _afternoonTime ||
+              newEvening != _eveningTime ||
+              newTimezone != _scheduleTimezone ||
+              newActive != _scheduleActive) {
+            setState(() {
+              _morningTime = newMorning;
+              _afternoonTime = newAfternoon;
+              _eveningTime = newEvening;
+              _scheduleTimezone = newTimezone;
+              _scheduleActive = newActive;
+            });
+
+            // Re-schedule reminders when schedule changes
+            unawaited(_scheduleReminders());
+          }
+        }
+      }
+    });
+  }
+
+  String _formatTime(String? time) {
+    if (time == null || time.isEmpty) return '--:--';
+    // Expect formats like HH:mm or HH:mm:ss
+    final parts = time.split(':');
+    if (parts.length >= 2) {
+      return '${parts[0].padLeft(2, '0')}:${parts[1].padLeft(2, '0')}';
+    }
+    return time;
+  }
+
+  String _timezoneAbbr(String? timezone) {
+    if (timezone == null) return '';
+    switch (timezone) {
+      case 'Asia/Jakarta':
+        return 'WIB';
+      case 'Asia/Makassar':
+        return 'WITA';
+      case 'Asia/Jayapura':
+        return 'WIT';
+      default:
+        return timezone;
+    }
+  }
+
+  /// Schedule reminder notifications 10 minutes before each call time
+  Future<void> _scheduleReminders() async {
+    try {
+      if (kDebugMode) {
+        print('📅 Scheduling reminders for call times...');
+      }
+
+      await ScheduleReminderService.instance.scheduleAllReminders(
+        morningTime: _morningTime,
+        afternoonTime: _afternoonTime,
+        eveningTime: _eveningTime,
+        timezone: _scheduleTimezone,
+        isActive: _scheduleActive ?? false,
+      );
+
+      if (kDebugMode) {
+        print('✅ Reminders scheduled successfully');
+        // Debug: Show pending notifications
+        await ScheduleReminderService.instance.getPendingReminders();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error scheduling reminders: $e');
       }
     }
   }
@@ -476,7 +682,35 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       MaterialPageRoute(
         builder: (context) => const PairingScreen(),
       ),
-    );
+    ).then((result) async {
+      if (result == true && mounted) {
+        // Auto refresh after successful pairing without leaving the app
+        setState(() {
+          _status = 'Finalizing setup...';
+        });
+
+        await _checkDeviceStatus();
+        await _registerTokens();
+        await _initScheduleFeature();
+
+        if (!mounted) return;
+        setState(() {
+          _status = _isDevicePaired ? 'Ready for calls' : 'Device not paired';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Device paired successfully. You are ready to receive calls.',
+              style: GoogleFonts.fraunces(
+                  fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            backgroundColor: const Color(0xFFE38B6F),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    });
   }
 
   void _navigateToChat() async {
@@ -558,96 +792,95 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFFAFAFA),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(20.0),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
 
-              // App Title
-              Text(
-                'Callpanion',
-                style: GoogleFonts.fraunces(
-                  fontSize: 42,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFFE38B6F),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              // Subtitle
-              Text(
-                _relativeName != null
-                    ? 'Hello, $_relativeName!'
-                    : 'Stay Connected with Family',
-                style: GoogleFonts.fraunces(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w400,
-                  color: const Color(0xFF0F3B2E),
-                ),
-                textAlign: TextAlign.center,
-              ),
-
-              const SizedBox(height: 48),
-
-              // Status Card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+              // Header with App Title and Status
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Callpanion',
+                          style: GoogleFonts.fraunces(
+                            fontSize: 32,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFFE38B6F),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _relativeName != null
+                              ? 'Hello, $_relativeName!'
+                              : 'Stay Connected',
+                          style: GoogleFonts.fraunces(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w400,
+                            color: const Color(0xFF0F3B2E),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    // Status Icon
+                  ),
+                  // Small status indicator
+                  if (!_isLoading)
                     Container(
-                      width: 64,
-                      height: 64,
+                      padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: _isDevicePaired
-                            ? const Color(0xFFE38B6F).withOpacity(0.1)
-                            : const Color(0xFFE38B6F).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(32),
+                            ? const Color(0xFF16A34A).withOpacity(0.1)
+                            : const Color(0xFFEF4444).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
                       ),
                       child: Icon(
-                        _isLoading
-                            ? Icons.sync
-                            : _isDevicePaired
-                                ? Icons.check_circle
-                                : Icons.warning,
-                        size: 32,
-                        color: const Color(0xFFE38B6F),
+                        _isDevicePaired ? Icons.check_circle : Icons.warning,
+                        size: 20,
+                        color: _isDevicePaired
+                            ? const Color(0xFF16A34A)
+                            : const Color(0xFFEF4444),
                       ),
                     ),
+                ],
+              ),
 
-                    const SizedBox(height: 16),
+              const SizedBox(height: 24),
 
-                    // Status Text
-                    Text(
-                      _status,
-                      style: GoogleFonts.fraunces(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFFE38B6F),
+              // Pair Device Button (only show if not paired)
+              if (!_isDevicePaired && !_isLoading) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border:
+                        Border.all(color: const Color(0xFFE38B6F), width: 2),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.link_off,
+                        size: 40,
+                        color: Color(0xFFE38B6F),
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-
-                    // Pairing button when not paired
-                    if (!_isDevicePaired && !_isLoading) ...[
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Device not paired',
+                        style: GoogleFonts.fraunces(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF0F3B2E),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         height: 48,
@@ -671,216 +904,486 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
                         ),
                       ),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
 
-                    if (_currentCall != null) ...[
+              // Call Times Section (at the top)
+              if (_isDevicePaired) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Today\'s Calls',
+                            style: GoogleFonts.fraunces(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF0F3B2E),
+                            ),
+                          ),
+                          if (_scheduleActive != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: (_scheduleActive ?? false)
+                                    ? const Color(0xFF16A34A)
+                                    : const Color(0xFF9CA3AF),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                (_scheduleActive ?? false) ? 'On' : 'Off',
+                                style: GoogleFonts.fraunces(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      if (_scheduleTimezone != null &&
+                          _scheduleTimezone!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            '${_timezoneAbbr(_scheduleTimezone)} timezone',
+                            style: GoogleFonts.fraunces(
+                              fontSize: 11,
+                              color: const Color(0xFF6B7280),
+                            ),
+                          ),
+                        ),
                       const SizedBox(height: 16),
+                      if (_isScheduleLoading)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(20),
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      else
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _TimeCard(
+                                  label: 'Morning',
+                                  time: _formatTime(_morningTime),
+                                  icon: Icons.wb_sunny),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _TimeCard(
+                                  label: 'Afternoon',
+                                  time: _formatTime(_afternoonTime),
+                                  icon: Icons.wb_cloudy),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _TimeCard(
+                                  label: 'Evening',
+                                  time: _formatTime(_eveningTime),
+                                  icon: Icons.nights_stay),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Chat and Gallery Buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 56,
+                        child: ElevatedButton(
+                          onPressed: _navigateToChat,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE38B6F),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.chat_bubble, size: 22),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Chat',
+                                style: GoogleFonts.fraunces(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: SizedBox(
+                        height: 56,
+                        child: ElevatedButton(
+                          onPressed: _navigateToGallery,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFE38B6F),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            elevation: 2,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.photo_library, size: 22),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Gallery',
+                                style: GoogleFonts.fraunces(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+
+              // Microphone Permission Warning (using cached value for performance)
+              if (_microphoneGranted == false)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.mic_off,
+                        color: Color(0xFFDC2626),
+                        size: 28,
+                      ),
+                      const SizedBox(height: 8),
                       Text(
-                        'Call from ${_currentCall!.relativeName}',
+                        'Microphone Required',
                         style: GoogleFonts.fraunces(
                           fontSize: 14,
-                          fontWeight: FontWeight.w400,
-                          color: const Color(0xFF0F3B2E),
+                          fontWeight: FontWeight.bold,
+                          color: const Color(0xFFDC2626),
                         ),
                         textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () async {
+                            await PermissionService.openSettings();
+                            // Re-check permission after user returns
+                            unawaited(_checkMicrophonePermission());
+                          },
+                          icon: const Icon(Icons.settings, size: 16),
+                          label: Text(
+                            'Open Settings',
+                            style: GoogleFonts.fraunces(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFFDC2626),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Collapsible Important Info Section
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE4B8AC), width: 1),
+                ),
+                child: Column(
+                  children: [
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _isImportantInfoExpanded = !_isImportantInfoExpanded;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.info_outline,
+                                color: Color(0xFFE38B6F), size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'How to Use',
+                                style: GoogleFonts.fraunces(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF0F3B2E),
+                                ),
+                              ),
+                            ),
+                            Icon(
+                              _isImportantInfoExpanded
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
+                              color: const Color(0xFFE38B6F),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (_isImportantInfoExpanded) ...[
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Keep this app open to receive calls reliably.',
+                              style: GoogleFonts.fraunces(
+                                fontSize: 13,
+                                color: const Color(0xFF0F3B2E),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            _GuideStep(
+                                number: 1, text: 'Wait for call notification'),
+                            _GuideStep(number: 2, text: 'Tap Accept to answer'),
+                            _GuideStep(
+                                number: 3, text: 'Wait for timer to appear'),
+                            _GuideStep(
+                                number: 4,
+                                text: 'Tap notification to open call'),
+                            _GuideStep(
+                                number: 5, text: 'Wait for agent to connect'),
+                            _GuideStep(
+                                number: 6, text: 'Press End Call when done'),
+                          ],
+                        ),
                       ),
                     ],
                   ],
                 ),
               ),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 16),
 
-              // Microphone Permission Warning
-              FutureBuilder<bool>(
-                future: PermissionService.isMicrophoneGranted(),
-                builder: (context, snapshot) {
-                  final micGranted = snapshot.data ?? true;
-
-                  if (micGranted) return const SizedBox.shrink();
-
-                  return Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEF2F2),
-                      border: Border.all(color: const Color(0xFFFCA5A5)),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      children: [
-                        const Icon(
-                          Icons.mic_off,
-                          color: Color(0xFFDC2626),
-                          size: 32,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Microphone Permission Required',
-                          style: GoogleFonts.fraunces(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: const Color(0xFFDC2626),
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Microphone is required for conversational calls',
-                          style: GoogleFonts.fraunces(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w400,
-                            color: const Color(0xFF991B1B),
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton.icon(
-                            onPressed: () async {
-                              await PermissionService.openSettings();
-                            },
-                            icon: const Icon(Icons.settings, size: 16),
-                            label: Text(
-                              'Open Settings',
-                              style: GoogleFonts.fraunces(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFDC2626),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-
-              // Chat and Gallery Buttons (only show when paired - NO LOADING REQUIRED)
-              if (_isDevicePaired) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: _navigateToChat,
-                      icon: Image.asset(
-                        'assets/icon/Chat.png',
-                        width: 20,
-                        height: 20,
-                        color: Colors.white,
-                        errorBuilder: (context, error, stackTrace) {
-                          // Fallback ke icon default jika Chat.png tidak ditemukan
-                          return const Icon(
-                            Icons.chat_bubble,
-                            size: 20,
-                            color: Colors.white,
-                          );
-                        },
-                      ),
-                      label: Text(
-                        'Open Family Chat',
-                        style: GoogleFonts.fraunces(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE38B6F),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        elevation: 1,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton.icon(
-                      onPressed: _navigateToGallery,
-                      icon: const Icon(Icons.photo_library, size: 20),
-                      label: Text(
-                        'Your Gallery',
-                        style: GoogleFonts.fraunces(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE38B6F),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        elevation: 1,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 48),
-              ],
-
-              // Footer Info - Moved to bottom
+              // Footer: Why keeping the app open near call time matters
               Container(
-                margin: const EdgeInsets.only(top: 32),
-                padding: const EdgeInsets.all(20),
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: const Color(0xFFE4B8AC),
-                    width: 1,
-                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE4B8AC), width: 1),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
-                child: Column(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      Icons.info_outline,
-                      size: 28,
-                      color: const Color(0xFFE38B6F),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Your family schedules 3 calls daily',
-                      style: GoogleFonts.fraunces(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF0F3B2E),
+                    const Icon(Icons.notification_important,
+                        color: Color(0xFFE38B6F), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Why keep the app open near call time?',
+                            style: GoogleFonts.fraunces(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF0F3B2E),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'To receive the incoming call faster and more reliably. When the app is open or running in the background, notifications and the call screen can appear without delay, so you won\'t miss the call.',
+                            style: GoogleFonts.fraunces(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                              color: const Color(0xFF0F3B2E),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Tip: 5–10 minutes before the scheduled time, open the app and leave it on. This helps ensure the agent connects smoothly and quickly when the call starts.',
+                            style: GoogleFonts.fraunces(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                              color: const Color(0xFF0F3B2E),
+                            ),
+                          ),
+                        ],
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'You\'ll receive native call notifications and have conversations with Callpanion AI agent',
-                      style: GoogleFonts.fraunces(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w400,
-                        color: const Color(0xFF0F3B2E).withOpacity(0.7),
-                      ),
-                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
               ),
+
+              const SizedBox(height: 32),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// Make this widget const-friendly by moving GoogleFonts calls to variables
+class _GuideStep extends StatelessWidget {
+  final int number;
+  final String text;
+
+  const _GuideStep({required this.number, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE38B6F).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(11),
+            ),
+            child: Text(
+              '$number',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFE38B6F),
+                fontFamily: 'Fraunces',
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Color(0xFF0F3B2E),
+                fontWeight: FontWeight.w400,
+                fontFamily: 'Fraunces',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimeCard extends StatelessWidget {
+  final String label;
+  final String time;
+  final IconData icon;
+
+  const _TimeCard({
+    required this.label,
+    required this.time,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFAFA),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE4B8AC).withOpacity(0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: const Color(0xFFE38B6F).withOpacity(0.7),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            time,
+            style: GoogleFonts.fraunces(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFF0F3B2E),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: GoogleFonts.fraunces(
+              fontSize: 10,
+              color: const Color(0xFF6B7280),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }

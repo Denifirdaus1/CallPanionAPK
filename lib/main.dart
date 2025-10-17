@@ -8,6 +8,9 @@ import 'services/fcm_service.dart';
 import 'services/permission_service.dart';
 import 'services/network_service.dart';
 import 'services/supabase_auth_service.dart';
+import 'services/chat_notification_service.dart';
+import 'services/app_lifecycle_service.dart';
+import 'services/schedule_reminder_service.dart';
 import 'screens/main_screen.dart';
 import 'screens/call_screen.dart';
 import 'models/call_data.dart';
@@ -42,6 +45,15 @@ void main() async {
   // Initialize FCM service
   await FCMService.instance.initialize();
 
+  // Initialize Chat Notification Service (for local notifications)
+  await ChatNotificationService.instance.initialize();
+
+  // Initialize App Lifecycle Service (for foreground/background tracking)
+  await AppLifecycleService.instance.initialize();
+
+  // Initialize Schedule Reminder Service (for call time reminders)
+  await ScheduleReminderService.instance.initialize();
+
   // ElevenLabs service is auto-initialized (singleton pattern)
   // No explicit initialize() method needed
 
@@ -55,15 +67,42 @@ class CallPanionElderlyApp extends StatefulWidget {
   State<CallPanionElderlyApp> createState() => _CallPanionElderlyAppState();
 }
 
-class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> {
+class _CallPanionElderlyAppState extends State<CallPanionElderlyApp> with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _setupCallKitNavigation();
     // REMOVED: _checkForPendingCallOnStartup() to prevent auto-navigation
     // Call screen navigation ONLY happens from explicit CallKit accept event
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    // Update chat notification service about app state
+    if (state == AppLifecycleState.resumed) {
+      // App in foreground
+      ChatNotificationService.instance.setAppForegroundState(true);
+      if (kDebugMode) {
+        print('📱 App resumed - chat notifications disabled');
+      }
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      // App in background
+      ChatNotificationService.instance.setAppForegroundState(false);
+      if (kDebugMode) {
+        print('📱 App backgrounded - chat notifications enabled');
+      }
+    }
   }
 
   void _setupCallKitNavigation() {

@@ -80,7 +80,7 @@ class ChatNotificationService {
     // IMPORTANT: Don't show notification if app is in foreground
     if (_isAppInForeground) {
       if (kDebugMode) {
-        print('[ChatNotification] =« App in foreground, skipping notification');
+        print('[ChatNotification] =ï¿½ App in foreground, skipping notification');
       }
       return;
     }
@@ -149,7 +149,7 @@ class ChatNotificationService {
     try {
       await _notificationsPlugin.cancelAll();
       if (kDebugMode) {
-        print('[ChatNotification] =Ñ All notifications cancelled');
+        print('[ChatNotification] =ï¿½ All notifications cancelled');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -163,7 +163,7 @@ class ChatNotificationService {
     try {
       await _notificationsPlugin.cancel(householdId.hashCode);
       if (kDebugMode) {
-        print('[ChatNotification] =Ñ Cancelled notification for: $householdId');
+        print('[ChatNotification] =ï¿½ Cancelled notification for: $householdId');
       }
     } catch (e) {
       if (kDebugMode) {
