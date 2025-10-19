@@ -201,107 +201,52 @@ export const PairedDevicesStatus = () => {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center space-x-2">
-          <Monitor className="h-5 w-5" />
-          <span>Paired Devices Status</span>
-        </CardTitle>
-        <CardDescription>
-          Monitor the status of paired elderly devices
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Header with refresh button */}
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-medium">
-            {pairedDevices.length} Device{pairedDevices.length !== 1 ? 's' : ''} Paired
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Smartphone className="h-4 w-4" />
+            <span>Paired Devices</span>
           </div>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={loadPairedDevices}
-            className="flex items-center space-x-1"
+            className="h-7 px-2"
           >
-            <RefreshCw className="h-4 w-4" />
-            <span>Refresh</span>
+            <RefreshCw className="h-3 w-3" />
           </Button>
-        </div>
-
-        {/* Paired Devices List */}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
         {pairedDevices.length === 0 ? (
-          <div className="text-center py-6 border border-dashed rounded-lg">
-            <Smartphone className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">No devices paired yet</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Generate pairing tokens to connect elderly devices
-            </p>
+          <div className="text-center py-4">
+            <Smartphone className="h-6 w-6 text-muted-foreground mx-auto mb-1" />
+            <p className="text-xs text-muted-foreground">No devices paired</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {pairedDevices.map((device) => {
               const status = getDeviceStatus(device);
               const StatusIcon = status.icon;
               
               return (
-                <div key={device.id} className="border rounded-lg p-4 space-y-3">
-                  {/* Device Header */}
+                <div key={device.id} className="border rounded-md p-3 space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex items-center space-x-2">
-                        <StatusIcon className="h-5 w-5 text-green-600" />
-                        <span className="font-medium">
-                          {device.device_label || `${device.relative_name}'s Device`}
-                        </span>
-                      </div>
-                      <Badge className={status.color}>
-                        {status.label}
-                      </Badge>
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      Paired {formatLastSeen(device.claimed_at)}
-                    </div>
-                  </div>
-
-                  {/* Device Info */}
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-muted-foreground">Relative</p>
-                      <p className="font-medium">{device.relative_name}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Household</p>
-                      <p className="font-medium">{device.household_name}</p>
-                    </div>
-                  </div>
-
-                  {/* Device Technical Info */}
-                  <div className="bg-muted/30 rounded p-3 space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Pairing Code:</span>
-                      <span className="font-mono">{device.code_6}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Token:</span>
-                      <span className="font-mono">{device.pair_token}</span>
-                    </div>
-                    {device.device_info && Object.keys(device.device_info).length > 0 && (
-                      <div className="text-xs">
-                        <p className="text-muted-foreground mb-1">Device Info:</p>
-                        <pre className="text-xs overflow-x-auto">
-                          {JSON.stringify(device.device_info, null, 2)}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Connection Status */}
-                  <div className="flex items-center justify-between text-sm">
                     <div className="flex items-center space-x-2">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      <span className="text-muted-foreground">Ready for calls</span>
+                      <StatusIcon className="h-4 w-4 text-green-600" />
+                      <span className="text-sm font-medium">
+                        {device.relative_name}
+                      </span>
                     </div>
-                    <div className="text-muted-foreground">
-                      Last activity: {formatLastSeen(device.claimed_at)}
+                    <Badge variant="outline" className="text-xs">
+                      {status.label}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Paired {formatLastSeen(device.claimed_at)}</span>
+                    <div className="flex items-center space-x-1">
+                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                      <span>Ready</span>
                     </div>
                   </div>
                 </div>
@@ -309,15 +254,6 @@ export const PairedDevicesStatus = () => {
             })}
           </div>
         )}
-
-        {/* Info Alert */}
-        <Alert>
-          <Info className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Real-time Status:</strong> Device status is updated when devices sync with the CallPanion app. 
-            Paired devices are ready to receive in-app calls.
-          </AlertDescription>
-        </Alert>
       </CardContent>
     </Card>
   );
