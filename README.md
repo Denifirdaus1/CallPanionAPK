@@ -95,26 +95,28 @@ Callpanion is an innovative AI-powered communication platform designed specifica
 
 ### 4. ⏰ Notification Scheduling Phase (Edge Functions)
 
-**Location:** `supabase/functions/scheduler-queue/` & `supabase/functions/scheduler-execute/`
+**Location:** `supabase/functions/schedulerInAppCalls/`
 
 **Process:**
-1. **Phase 1 - Queue Notifications:**
+1. **Phase 1 - Queue Notifications (5 minutes before):**
    - Check active schedules for current time
    - Create notification entries in `notification_queue` table
    - Include relative info, household info, and call type
+   - Detect device platform and tokens from `device_pairs`
 
-2. **Phase 2 - Execute Notifications:**
+2. **Phase 2 - Execute Notifications (at scheduled time):**
    - Process queued notifications
-   - Detect device platform (Android/iOS)
-   - Send appropriate notifications:
-     - **Android**: FCM push notification
-     - **iOS**: VoIP push notification via CallKit
+   - Send platform-specific notifications:
+     - **Android**: FCM push notification via `send-fcm-notification`
+     - **iOS**: VoIP push notification via `send-apns-voip-notification`
+   - Create call sessions and logs
 
 **Key Components:**
-- Timezone-aware scheduling
-- Platform detection logic
-- Notification queue management
-- Error handling and retry logic
+- Enhanced 2-phase scheduling system
+- Device token detection from `device_pairs` and `push_notification_tokens`
+- Platform-specific notification routing
+- Retry mechanism and error handling
+- Real-time broadcasting to dashboard
 
 ### 5. 📞 CallKit Integration Phase (Mobile)
 
@@ -257,10 +259,16 @@ Callpanion is an innovative AI-powered communication platform designed specifica
 - Success/failure tracking
 - Debug information
 
-**`device_tokens`**
+**`push_notification_tokens`**
 - FCM and VoIP tokens
 - Platform and device information
 - Token validation and updates
+- User association and pairing info
+
+**`notification_queue`**
+- Queued notification entries
+- Execution status and retry logic
+- Platform-specific data and tokens
 
 ## Edge Functions
 
@@ -274,20 +282,27 @@ Callpanion is an innovative AI-powered communication platform designed specifica
 - **Features**: Data extraction, normalization, database updates
 - **Output**: Call summaries, mood analysis, criteria scores
 
-### `send-notification`
-- **Purpose**: Send platform-specific notifications
-- **Platforms**: Android (FCM), iOS (VoIP)
-- **Features**: Token validation, retry logic, error handling
+### `send-fcm-notification`
+- **Purpose**: Send FCM notifications to Android devices
+- **Features**: JWT OAuth authentication, token validation, FCM v1 API
+- **Integration**: Google OAuth, Firebase Cloud Messaging
 
-### `scheduler-queue`
-- **Purpose**: Queue notifications for execution
-- **Features**: Timezone handling, schedule validation
-- **Output**: Notification queue entries
+### `send-push-notification`
+- **Purpose**: Send notifications to multiple users
+- **Platforms**: Android (FCM), iOS (VoIP fallback)
+- **Features**: Device detection, platform-specific routing
+- **Integration**: FCM, APNs VoIP
 
-### `scheduler-execute`
-- **Purpose**: Execute queued notifications
-- **Features**: Platform detection, notification delivery
-- **Integration**: FCM, VoIP, CallKit
+### `send-apns-voip-notification`
+- **Purpose**: Send VoIP push notifications to iOS devices
+- **Features**: APNs JWT authentication, CallKit integration
+- **Integration**: Apple Push Notification service
+
+### `schedulerInAppCalls`
+- **Purpose**: Enhanced 2-phase notification scheduling
+- **Phase 1**: Queue notifications 5 minutes before execution
+- **Phase 2**: Execute notifications at scheduled time
+- **Features**: Device detection, retry logic, real-time broadcasting
 
 ## Mobile App Structure
 
@@ -473,6 +488,38 @@ Callpanion is an innovative AI-powered communication platform designed specifica
 - Code location: `lib/services/elevenlabs_call_service.dart:45-55`
 
 **Fixed in Version:** October 2025 release
+
+### ✅ Fixed: iOS Bridge Alignment with Official ElevenLabs SDK
+
+**Problem:**
+- iOS bridge (`ElevenLabsBridge.swift`) not using official ElevenLabs Swift SDK
+- Inconsistent functionality compared to Android bridge
+- Missing proper conversation lifecycle management
+
+**Solution Applied:**
+- Refactored iOS bridge to use official `ElevenLabs.startConversation` API
+- Aligned method channels and event channels with Android implementation
+- Implemented proper conversation delegate methods
+- Added VoIP token registration via MethodChannel
+- Code location: `ios/Runner/ElevenLabsBridge.swift`
+
+**Fixed in Version:** October 2025 release
+
+### ✅ Enhanced: FCM Notification System
+
+**Improvements:**
+- Enhanced 2-phase notification scheduling (queue + execute)
+- Improved device token detection from `device_pairs` and `push_notification_tokens`
+- Added retry mechanism and error handling
+- Real-time broadcasting to dashboard
+- Platform-specific notification routing (Android FCM, iOS VoIP)
+
+**Code Locations:**
+- `supabase/functions/schedulerInAppCalls/`
+- `supabase/functions/send-fcm-notification/`
+- `supabase/functions/send-apns-voip-notification/`
+
+**Enhanced in Version:** October 2025 release
 
 ## Future Enhancements
 

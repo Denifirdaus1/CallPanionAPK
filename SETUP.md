@@ -49,9 +49,21 @@ Copy all files from the `lib/` directory structure provided.
 ## 🔧 Backend Integration
 
 The app integrates with these CallPanion Edge Functions:
-- `register-fcm-token` - Register device tokens
-- `updateCallStatus` - Update call statuses (accept/decline/end)
-- `check-scheduled-calls` - Check for pending calls
+
+### Core Functions
+- `register-fcm-token` - Register FCM and VoIP tokens
+- `pair-claim` - Claim device pairing with 6-digit code
+- `claim-chat-access` - Authenticate for chat access
+
+### Notification Functions
+- `send-fcm-notification` - Send FCM notifications to Android
+- `send-push-notification` - Send notifications to multiple users
+- `send-apns-voip-notification` - Send VoIP notifications to iOS
+- `schedulerInAppCalls` - Enhanced 2-phase notification scheduling
+
+### ElevenLabs Integration
+- `elevenlabs-device-call` - Manage ElevenLabs call lifecycle
+- `elevenlabs-webhook` - Process post-call data from ElevenLabs
 
 ## 📞 CallKit Features
 
@@ -72,11 +84,13 @@ The app integrates with these CallPanion Edge Functions:
 
 ## 🛠 Development Testing
 
-### Test with Firebase Console
-1. Send test FCM messages with this payload:
+### Test with Supabase Functions
+1. Test FCM notification via `send-fcm-notification`:
 ```json
 {
-  "to": "DEVICE_FCM_TOKEN",
+  "deviceToken": "DEVICE_FCM_TOKEN",
+  "title": "Test Call",
+  "body": "This is a test notification",
   "data": {
     "type": "incoming_call",
     "sessionId": "test-session-123",
@@ -86,7 +100,31 @@ The app integrates with these CallPanion Edge Functions:
     "relativeId": "test-relative",
     "handle": "CallPanion",
     "duration": "30000"
-  }
+  },
+  "householdId": "test-household",
+  "relativeId": "test-relative"
+}
+```
+
+2. Test iOS VoIP notification via `send-apns-voip-notification`:
+```json
+{
+  "voipToken": "DEVICE_VOIP_TOKEN",
+  "deviceToken": "DEVICE_FCM_TOKEN",
+  "title": "Incoming Call",
+  "body": "Test Family is calling",
+  "data": {
+    "type": "incoming_call",
+    "sessionId": "test-session-123",
+    "relativeName": "Test Family",
+    "callType": "in_app_call",
+    "householdId": "test-household",
+    "relativeId": "test-relative",
+    "handle": "CallPanion",
+    "duration": "30000"
+  },
+  "householdId": "test-household",
+  "relativeId": "test-relative"
 }
 ```
 
@@ -112,9 +150,15 @@ The app includes comprehensive debug logging:
 - [ ] Signed APK for testing
 
 ### Backend Requirements
-- [ ] APNS_JWT_TOKEN secret configured
-- [ ] FCM_SERVICE_ACCOUNT_JSON secret configured  
-- [ ] iOS bundle ID configured
+- [ ] `FCM_SERVICE_ACCOUNT_JSON` secret configured (Firebase Service Account)
+- [ ] `ELEVENLABS_API_KEY` secret configured
+- [ ] `ELEVEN_AGENT_ID_IN_APP` secret configured
+- [ ] `APNS_KEY_ID` secret configured (iOS APNs Key ID)
+- [ ] `APNS_TEAM_ID` secret configured (Apple Team ID)
+- [ ] `APNS_KEY_BASE64` secret configured (APNs private key)
+- [ ] `APNS_BUNDLE_ID` secret configured (iOS Bundle ID)
+- [ ] `APNS_TOPIC_VOIP` secret configured (VoIP topic)
+- [ ] `APNS_ENV` secret configured (sandbox/production)
 - [ ] CallPanion web interface accessible
 
 ## 🚀 Deployment
